@@ -4,6 +4,7 @@ import LogoMark from '../components/LogoMark';
 import OtpInput from '../components/OtpInput';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/AdminAuth.css';
+import { IconDeviceMobile, IconShield, IconClipboardList, IconBolt, IconLock, IconMail } from '@tabler/icons-react';
 
 export default function AdminAuth() {
   const [view, setView] = useState('login'); // 'login' | 'otp-channel' | 'otp-enter'
@@ -126,24 +127,24 @@ export default function AdminAuth() {
               <svg className="illus-svg" viewBox="0 0 420 320" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <pattern id="admin-grid" width="28" height="28" patternUnits="userSpaceOnUse">
-                    <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(255,255,255,0.025)" stroke-width="1"/>
+                    <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(255,255,255,0.025)" strokeWidth={1}/>
                   </pattern>
                 </defs>
                 <rect width="420" height="320" fill="url(#admin-grid)" rx="12"/>
 
                 {/* Central shield */}
                 <path d="M210 60 L170 75 v50 c0 38 18 68 40 80 22-12 40-42 40-80 V75 z"
-                  fill="rgba(212,168,67,0.07)" stroke="rgba(212,168,67,0.35)" stroke-width="1.5" stroke-linejoin="round"/>
+                  fill="rgba(212,168,67,0.07)" stroke="rgba(212,168,67,0.35)" strokeWidth={1.5} strokeLinejoin="round"/>
                 {/* Inner shield check */}
-                <path d="M196 145 l10 10 20-22" stroke="#d4a843" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M196 145 l10 10 20-22" stroke="#d4a843" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
 
                 {/* Glow ring around shield */}
-                <circle cx="210" cy="135" r="52" fill="none" stroke="rgba(212,168,67,0.08)" stroke-width="20"/>
-                <circle cx="210" cy="135" r="52" fill="none" stroke="rgba(212,168,67,0.15)" stroke-width="1" stroke-dasharray="6 5"/>
+                <circle cx="210" cy="135" r="52" fill="none" stroke="rgba(212,168,67,0.08)" strokeWidth={20}/>
+                <circle cx="210" cy="135" r="52" fill="none" stroke="rgba(212,168,67,0.15)" strokeWidth={1} strokeDasharray="6 5"/>
 
                 {/* Top left: Audit dashboard panel */}
-                <rect x="30" y="40" width="110" height="100" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                <text x="42" y="58" font-family="IBM Plex Mono" font-size="7" fill="rgba(212,168,67,0.6)">AUDIT DASHBOARD</text>
+                <rect x="30" y="40" width="110" height="100" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" strokeWidth={1}/>
+                <text x="42" y="58" fontFamily="IBM Plex Mono" fontSize={7} fill="rgba(212,168,67,0.6)">AUDIT DASHBOARD</text>
                 <rect x="42" y="64" width="85" height="6" rx="2" fill="rgba(255,255,255,0.07)"/>
                 <rect x="42" y="75" width="65" height="6" rx="2" fill="rgba(255,255,255,0.05)"/>
                 <rect x="42" y="86" width="75" height="6" rx="2" fill="rgba(255,255,255,0.07)"/>
@@ -156,8 +157,8 @@ export default function AdminAuth() {
                 <circle cx="38" cy="111" r="2.5" fill="#4a9d8f" opacity="0.5"/>
 
                 {/* Top right: Election monitoring */}
-                <rect x="280" y="40" width="110" height="90" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                <text x="292" y="58" font-family="IBM Plex Mono" font-size="7" fill="rgba(74,157,143,0.7)">ELECTIONS LIVE</text>
+                <rect x="280" y="40" width="110" height="90" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" strokeWidth={1}/>
+                <text x="292" y="58" fontFamily="IBM Plex Mono" fontSize={7} fill="rgba(74,157,143,0.7)">ELECTIONS LIVE</text>
                 {/* mini progress bars */}
                 <rect x="292" y="64" width="85" height="6" rx="3" fill="rgba(255,255,255,0.06)"/>
                 <rect x="292" y="64" width="65" height="6" rx="3" fill="rgba(74,157,143,0.5)"/>
@@ -165,22 +166,22 @@ export default function AdminAuth() {
                 <rect x="292" y="75" width="40" height="6" rx="3" fill="rgba(212,168,67,0.5)"/>
                 <rect x="292" y="86" width="85" height="6" rx="3" fill="rgba(255,255,255,0.06)"/>
                 <rect x="292" y="86" width="78" height="6" rx="3" fill="rgba(74,157,143,0.7)"/>
-                <text x="292" y="110" font-family="DM Serif Display" font-size="20" fill="rgba(240,239,232,0.85)">3</text>
-                <text x="310" y="110" font-family="IBM Plex Mono" font-size="8" fill="rgba(255,255,255,0.3)">active</text>
+                <text x="292" y="110" fontFamily="DM Serif Display" fontSize={20} fill="rgba(240,239,232,0.85)">3</text>
+                <text x="310" y="110" fontFamily="IBM Plex Mono" fontSize={8} fill="rgba(255,255,255,0.3)">active</text>
 
                 {/* Bottom left: governance analytics */}
-                <rect x="30" y="190" width="110" height="100" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                <text x="42" y="208" font-family="IBM Plex Mono" font-size="7" fill="rgba(255,255,255,0.3)">GOVERNANCE</text>
+                <rect x="30" y="190" width="110" height="100" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" strokeWidth={1}/>
+                <text x="42" y="208" fontFamily="IBM Plex Mono" fontSize={7} fill="rgba(255,255,255,0.3)">GOVERNANCE</text>
                 {/* bar chart */}
                 <rect x="42" y="255" width="14" height="30" rx="2" fill="rgba(212,168,67,0.25)"/>
                 <rect x="60" y="240" width="14" height="45" rx="2" fill="rgba(212,168,67,0.45)"/>
                 <rect x="78" y="230" width="14" height="55" rx="2" fill="rgba(212,168,67,0.65)"/>
                 <rect x="96" y="220" width="14" height="65" rx="2" fill="#d4a843"/>
-                <line x1="42" y1="285" x2="120" y2="285" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+                <line x1="42" y1="285" x2="120" y2="285" stroke="rgba(255,255,255,0.1)" strokeWidth={1}/>
 
                 {/* Bottom right: system health */}
-                <rect x="280" y="175" width="110" height="115" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                <text x="292" y="193" font-family="IBM Plex Mono" font-size="7" fill="rgba(255,255,255,0.3)">SYSTEM HEALTH</text>
+                <rect x="280" y="175" width="110" height="115" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" strokeWidth={1}/>
+                <text x="292" y="193" fontFamily="IBM Plex Mono" fontSize={7} fill="rgba(255,255,255,0.3)">SYSTEM HEALTH</text>
                 <rect x="292" y="200" width="85" height="6" rx="2" fill="rgba(255,255,255,0.06)"/>
                 <rect x="292" y="200" width="85" height="6" rx="2" fill="rgba(74,157,143,0.4)"/>
                 <rect x="292" y="212" width="85" height="6" rx="2" fill="rgba(255,255,255,0.06)"/>
@@ -196,10 +197,10 @@ export default function AdminAuth() {
                 <circle cx="380" cy="239" r="3" fill="#d4a843"/>
 
                 {/* Connecting lines */}
-                <line x1="140" y1="90" x2="165" y2="110" stroke="rgba(212,168,67,0.15)" stroke-width="1" stroke-dasharray="4 3"/>
-                <line x1="280" y1="85" x2="258" y2="110" stroke="rgba(212,168,67,0.15)" stroke-width="1" stroke-dasharray="4 3"/>
-                <line x1="140" y1="240" x2="165" y2="210" stroke="rgba(212,168,67,0.12)" stroke-width="1" stroke-dasharray="4 3"/>
-                <line x1="280" y1="230" x2="258" y2="210" stroke="rgba(212,168,67,0.12)" stroke-width="1" stroke-dasharray="4 3"/>
+                <line x1="140" y1="90" x2="165" y2="110" stroke="rgba(212,168,67,0.15)" strokeWidth={1} strokeDasharray="4 3"/>
+                <line x1="280" y1="85" x2="258" y2="110" stroke="rgba(212,168,67,0.15)" strokeWidth={1} strokeDasharray="4 3"/>
+                <line x1="140" y1="240" x2="165" y2="210" stroke="rgba(212,168,67,0.12)" strokeWidth={1} strokeDasharray="4 3"/>
+                <line x1="280" y1="230" x2="258" y2="210" stroke="rgba(212,168,67,0.12)" strokeWidth={1} strokeDasharray="4 3"/>
               </svg>
             </div>
 
@@ -207,10 +208,10 @@ export default function AdminAuth() {
             <p className="left-desc">Manage elections, monitor infrastructure, audit voting activity, and maintain election integrity through VoteGuard's governance platform.</p>
 
             <div className="admin-badges">
-              <div className="admin-badge"><div className="badge-icon">🛡</div>Multi-factor authentication required</div>
-              <div className="admin-badge"><div className="badge-icon">📋</div>All admin sessions are fully audit-logged</div>
-              <div className="admin-badge"><div className="badge-icon">⚡</div>Progressive rate limiting active</div>
-              <div className="admin-badge"><div className="badge-icon">🔒</div>Authorized personnel only</div>
+              <div className="admin-badge"><div className="badge-icon"><IconShield size={16}/></div>Multi-factor authentication required</div>
+              <div className="admin-badge"><div className="badge-icon"><IconClipboardList size={16}/></div>All admin sessions are fully audit-logged</div>
+              <div className="admin-badge"><div className="badge-icon"><IconBolt size={16}/></div>Progressive rate limiting active</div>
+              <div className="admin-badge"><div className="badge-icon"><IconLock size={16}/></div>Authorized personnel only</div>
             </div>
           </div>
         </div>
@@ -228,7 +229,7 @@ export default function AdminAuth() {
               <div className="form-view active">
                 <div className="admin-access-badge">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M6 1L2 2.5v3.5c0 2.8 1.8 5.2 4 6 2.2-.8 4-3.2 4-6V2.5L6 1z" stroke="#d4a843" stroke-width="1" fill="rgba(212,168,67,0.2)"/>
+                    <path d="M6 1L2 2.5v3.5c0 2.8 1.8 5.2 4 6 2.2-.8 4-3.2 4-6V2.5L6 1z" stroke="#d4a843" strokeWidth={1} fill="rgba(212,168,67,0.2)"/>
                   </svg>
                   Authorized Personnel Only
                 </div>
@@ -294,12 +295,12 @@ export default function AdminAuth() {
                 </button>
 
                 <div className="sec-panel">
-                  <div className="sec-item"><div class="sec-dot"></div>SQL Injection Protection</div>
-                  <div className="sec-item"><div class="sec-dot"></div>Multi-Factor Authentication</div>
-                  <div className="sec-item"><div class="sec-dot"></div>Audit Logging Enabled</div>
-                  <div className="sec-item"><div class="sec-dot"></div>Secure Session Management</div>
-                  <div className="sec-item"><div class="sec-dot"></div>Progressive Rate Limiting</div>
-                  <div className="sec-item"><div class="sec-dot"></div>Encrypted Transport</div>
+                  <div className="sec-item"><div className="sec-dot"></div>SQL Injection Protection</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Multi-Factor Authentication</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Audit Logging Enabled</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Secure Session Management</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Progressive Rate Limiting</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Encrypted Transport</div>
                 </div>
               </div>
             )}
@@ -310,7 +311,7 @@ export default function AdminAuth() {
                 <div className="back-link" onClick={() => setView('login')}>← Back</div>
                 <div className="admin-access-badge">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M6 1L2 2.5v3.5c0 2.8 1.8 5.2 4 6 2.2-.8 4-3.2 4-6V2.5L6 1z" stroke="#d4a843" stroke-width="1" fill="rgba(212,168,67,0.2)"/>
+                    <path d="M6 1L2 2.5v3.5c0 2.8 1.8 5.2 4 6 2.2-.8 4-3.2 4-6V2.5L6 1z" stroke="#d4a843" strokeWidth={1} fill="rgba(212,168,67,0.2)"/>
                   </svg>
                   Two-Factor Authentication
                 </div>
@@ -318,8 +319,8 @@ export default function AdminAuth() {
                 <div className="card-sub" style={{ marginBottom: '24px' }}>Choose where to receive your verification code</div>
 
                 <div className="otp-channel">
-                  <div className={`otp-opt ${otpChannel === 'email' ? 'sel' : ''}`} onClick={() => setOtpChannel('email')}>📧 Email</div>
-                  <div className={`otp-opt ${otpChannel === 'phone' ? 'sel' : ''}`} onClick={() => setOtpChannel('phone')}>📱 Phone</div>
+                  <div className={`otp-opt ${otpChannel === 'email' ? 'sel' : ''}`} onClick={() => setOtpChannel('email')}><IconMail size={18} style={{marginRight: 8}}/> Email</div>
+                  <div className={`otp-opt ${otpChannel === 'phone' ? 'sel' : ''}`} onClick={() => setOtpChannel('phone')}><IconDeviceMobile size={18} style={{marginRight: 8}}/> Phone</div>
                 </div>
 
                 <button 
@@ -335,8 +336,8 @@ export default function AdminAuth() {
                 </button>
 
                 <div className="sec-panel" style={{ gridTemplateColumns: '1fr', marginTop: '18px' }}>
-                  <div className="sec-item"><div class="sec-dot"></div>Code expires in 5 minutes</div>
-                  <div className="sec-item"><div class="sec-dot"></div>Session locked to this device</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Code expires in 5 minutes</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Session locked to this device</div>
                 </div>
               </div>
             )}
@@ -362,8 +363,8 @@ export default function AdminAuth() {
                 <button className="btn-main gold" onClick={handleVerifyOTP}>Verify &amp; Login</button>
 
                 <div className="sec-panel" style={{ marginTop: '18px' }}>
-                  <div className="sec-item"><div class="sec-dot"></div>Audit log on verify</div>
-                  <div className="sec-item"><div class="sec-dot"></div>Rate limited</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Audit log on verify</div>
+                  <div className="sec-item"><div className="sec-dot"></div>Rate limited</div>
                 </div>
               </div>
             )}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { IconMoon, IconSun } from '@tabler/icons-react';
 
 /**
  * Premium switch-type Theme Toggle component.
@@ -18,7 +19,7 @@ export default function ThemeToggle() {
 
   return (
     <div className="theme-toggle-wrap" title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}>
-      <span className="toggle-label-icon">🌙</span>
+      <span className="toggle-label-icon"><IconMoon size={16} /></span>
       <button 
         type="button"
         className={`theme-toggle-switch ${isLight ? 'active' : ''}`}
@@ -27,7 +28,7 @@ export default function ThemeToggle() {
       >
         <span className="theme-toggle-knob"></span>
       </button>
-      <span className="toggle-label-icon">☀️</span>
+      <span className="toggle-label-icon"><IconSun size={16} /></span>
     </div>
   );
 }

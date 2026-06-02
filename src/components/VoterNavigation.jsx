@@ -70,6 +70,12 @@ export default function VoterNavigation({
         <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
         <line x1="12" y1="17" x2="12.01" y2="17" />
       </svg>
+    )},
+    { id: 'Profile', label: 'Profile', icon: (
+      <svg viewBox="0 0 24 24" className="nav-icon-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
     )}
   ];
 
@@ -159,10 +165,18 @@ export default function VoterNavigation({
             </div>
 
             {/* User Profile */}
-            <div className="profile-badge-desktop">
-              <div className="profile-avatar-circle" style={{ background: 'linear-gradient(135deg, var(--teal), var(--teal3))' }}>
-                {voter.name.split(' ').map(n => n[0]).join('')}
-              </div>
+            <div 
+              className={`profile-badge-desktop ${activeTab === 'Profile' ? 'active' : ''}`}
+              onClick={() => handleTabSelect('Profile')}
+              style={{ cursor: 'pointer' }}
+            >
+              {voter.avatarUrl ? (
+                <img src={voter.avatarUrl} alt={voter.name} className="profile-avatar-circle" style={{ objectFit: 'cover' }} />
+              ) : (
+                <div className="profile-avatar-circle" style={{ background: 'linear-gradient(135deg, var(--teal), var(--teal3))' }}>
+                  {voter.name.split(' ').map(n => n[0]).join('')}
+                </div>
+              )}
               <div className="profile-info-text">
                 <span className="profile-name">{voter.name}</span>
                 <span className="profile-role">Voter Account</span>
@@ -241,9 +255,13 @@ export default function VoterNavigation({
 
           {/* Mobile Profile Avatar Trigger */}
           <button className="mobile-profile-trigger-btn" onClick={() => { setDrawerOpen(true); setNotificationsOpen(false); }}>
-            <div className="profile-avatar-circle mini">
-              {voter.name.split(' ').map(n => n[0]).join('')}
-            </div>
+            {voter.avatarUrl ? (
+              <img src={voter.avatarUrl} alt={voter.name} className="profile-avatar-circle mini" style={{ objectFit: 'cover' }} />
+            ) : (
+              <div className="profile-avatar-circle mini" style={{ background: 'linear-gradient(135deg, var(--teal), var(--teal3))' }}>
+                {voter.name.split(' ').map(n => n[0]).join('')}
+              </div>
+            )}
           </button>
         </div>
       </header>
@@ -264,10 +282,10 @@ export default function VoterNavigation({
           </button>
         ))}
 
-        {/* Profile Item trigger Drawer */}
+        {/* Profile Item trigger tab navigation directly */}
         <button
-          className={`bottom-nav-item ${drawerOpen ? 'active' : ''}`}
-          onClick={() => { setDrawerOpen(true); setNotificationsOpen(false); }}
+          className={`bottom-nav-item ${activeTab === 'Profile' ? 'active' : ''}`}
+          onClick={() => handleTabSelect('Profile')}
         >
           <div className="bottom-nav-icon-wrap">
             <svg viewBox="0 0 24 24" className="nav-icon-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -276,7 +294,7 @@ export default function VoterNavigation({
             </svg>
           </div>
           <span className="bottom-nav-label">Profile</span>
-          {drawerOpen && <span className="bottom-active-dot" />}
+          {activeTab === 'Profile' && <span className="bottom-active-dot" />}
         </button>
       </nav>
 
@@ -297,11 +315,19 @@ export default function VoterNavigation({
         </div>
 
         {/* Voter details Widget */}
-        <div className="drawer-profile-info-widget">
+        <div 
+          className="drawer-profile-info-widget"
+          onClick={() => handleTabSelect('Profile')}
+          style={{ cursor: 'pointer' }}
+        >
           <div className="drawer-avatar-wrap">
-            <div className="profile-avatar-circle large" style={{ background: 'linear-gradient(135deg, var(--teal), var(--teal3))' }}>
-              {voter.name.split(' ').map(n => n[0]).join('')}
-            </div>
+            {voter.avatarUrl ? (
+              <img src={voter.avatarUrl} alt={voter.name} className="profile-avatar-circle large" style={{ objectFit: 'cover' }} />
+            ) : (
+              <div className="profile-avatar-circle large" style={{ background: 'linear-gradient(135deg, var(--teal), var(--teal3))' }}>
+                {voter.name.split(' ').map(n => n[0]).join('')}
+              </div>
+            )}
             <div className="drawer-badge-indicator green-pulse">Eligible</div>
           </div>
           <div className="drawer-voter-metadata">

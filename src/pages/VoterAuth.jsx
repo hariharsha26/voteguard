@@ -4,6 +4,7 @@ import LogoMark from '../components/LogoMark';
 import OtpInput from '../components/OtpInput';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/voter-auth.css';
+import { IconMail, IconDeviceMobile } from '@tabler/icons-react';
 
 export default function VoterAuth() {
   const [view, setView] = useState('login'); // 'login' | 'register' | 'otp' | 'forgot'
@@ -39,37 +40,37 @@ export default function VoterAuth() {
                 {/* Background grid */}
                 <defs>
                   <pattern id="voter-grid" width="28" height="28" patternUnits="userSpaceOnUse">
-                    <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+                    <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1"/>
                   </pattern>
                 </defs>
                 <rect width="420" height="320" fill="url(#voter-grid)" rx="12"/>
 
                 {/* Ballot box central */}
-                <rect x="155" y="100" width="110" height="130" rx="10" fill="rgba(74,157,143,0.08)" stroke="rgba(74,157,143,0.3)" stroke-width="1.5"/>
-                <rect x="185" y="90" width="50" height="20" rx="5" fill="rgba(74,157,143,0.15)" stroke="rgba(74,157,143,0.4)" stroke-width="1"/>
+                <rect x="155" y="100" width="110" height="130" rx="10" fill="rgba(74,157,143,0.08)" stroke="rgba(74,157,143,0.3)" strokeWidth="1.5"/>
+                <rect x="185" y="90" width="50" height="20" rx="5" fill="rgba(74,157,143,0.15)" stroke="rgba(74,157,143,0.4)" strokeWidth="1"/>
                 {/* Slot */}
                 <rect x="193" y="97" width="34" height="4" rx="2" fill="rgba(74,157,143,0.5)"/>
                 {/* Ballot entering */}
-                <rect x="175" y="68" width="70" height="40" rx="6" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
-                <line x1="185" y1="80" x2="235" y2="80" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-                <line x1="185" y1="88" x2="220" y2="88" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
+                <rect x="175" y="68" width="70" height="40" rx="6" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.12)" strokeWidth="1"/>
+                <line x1="185" y1="80" x2="235" y2="80" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5"/>
+                <line x1="185" y1="88" x2="220" y2="88" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5"/>
                 {/* Check mark on ballot */}
-                <path d="M237 76 L241 81 L248 72" stroke="#4a9d8f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M237 76 L241 81 L248 72" stroke="#4a9d8f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
 
                 {/* Lock icon top right */}
-                <rect x="320" y="40" width="54" height="54" rx="12" fill="rgba(212,168,67,0.08)" stroke="rgba(212,168,67,0.2)" stroke-width="1"/>
-                <rect x="334" y="63" width="26" height="20" rx="4" fill="none" stroke="#d4a843" stroke-width="1.5"/>
-                <path d="M339 63 v-5 a8 8 0 0 1 16 0 v5" fill="none" stroke="#d4a843" stroke-width="1.5" stroke-linecap="round"/>
+                <rect x="320" y="40" width="54" height="54" rx="12" fill="rgba(212,168,67,0.08)" stroke="rgba(212,168,67,0.2)" strokeWidth="1"/>
+                <rect x="334" y="63" width="26" height="20" rx="4" fill="none" stroke="#d4a843" strokeWidth="1.5"/>
+                <path d="M339 63 v-5 a8 8 0 0 1 16 0 v5" fill="none" stroke="#d4a843" strokeWidth="1.5" strokeLinecap="round"/>
                 <circle cx="347" cy="72" r="2.5" fill="#d4a843" opacity="0.7"/>
 
                 {/* Shield icon bottom left */}
-                <rect x="46" y="200" width="54" height="54" rx="12" fill="rgba(74,157,143,0.08)" stroke="rgba(74,157,143,0.2)" stroke-width="1"/>
-                <path d="M73 212 L58 217 v8 c0 8 6 14 15 16 9-2 15-8 15-16 v-8 z" fill="none" stroke="#4a9d8f" stroke-width="1.5" stroke-linejoin="round"/>
-                <path d="M66 225 l4 4 7-8" stroke="#4a9d8f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <rect x="46" y="200" width="54" height="54" rx="12" fill="rgba(74,157,143,0.08)" stroke="rgba(74,157,143,0.2)" strokeWidth="1"/>
+                <path d="M73 212 L58 217 v8 c0 8 6 14 15 16 9-2 15-8 15-16 v-8 z" fill="none" stroke="#4a9d8f" strokeWidth="1.5" strokeLinejoin="round"/>
+                <path d="M66 225 l4 4 7-8" stroke="#4a9d8f" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
 
                 {/* Audit line items */}
-                <rect x="46" y="90" width="90" height="80" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                <text x="58" y="108" font-family="IBM Plex Mono" font-size="7" fill="rgba(74,157,143,0.7)">AUDIT LOG</text>
+                <rect x="46" y="90" width="90" height="80" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" strokeWidth="1"/>
+                <text x="58" y="108" fontFamily="IBM Plex Mono" fontSize="7" fill="rgba(74,157,143,0.7)">AUDIT LOG</text>
                 <rect x="58" y="113" width="65" height="6" rx="2" fill="rgba(255,255,255,0.08)"/>
                 <rect x="58" y="124" width="50" height="6" rx="2" fill="rgba(255,255,255,0.06)"/>
                 <rect x="58" y="135" width="60" height="6" rx="2" fill="rgba(255,255,255,0.08)"/>
@@ -80,27 +81,27 @@ export default function VoterAuth() {
                 <circle cx="54" cy="149" r="2.5" fill="rgba(255,255,255,0.2)" opacity="0.6"/>
 
                 {/* Right stats panel */}
-                <rect x="284" y="130" width="110" height="110" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                <text x="296" y="148" font-family="IBM Plex Mono" font-size="7" fill="rgba(255,255,255,0.3)">PARTICIPATION</text>
+                <rect x="284" y="130" width="110" height="110" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" strokeWidth="1"/>
+                <text x="296" y="148" fontFamily="IBM Plex Mono" fontSize="7" fill="rgba(255,255,255,0.3)">PARTICIPATION</text>
                 {/* mini bar chart */}
                 <rect x="296" y="195" width="12" height="25" rx="2" fill="rgba(74,157,143,0.3)"/>
                 <rect x="312" y="182" width="12" height="38" rx="2" fill="rgba(74,157,143,0.5)"/>
                 <rect x="328" y="170" width="12" height="50" rx="2" fill="rgba(74,157,143,0.7)"/>
                 <rect x="344" y="175" width="12" height="45" rx="2" fill="rgba(74,157,143,0.55)"/>
                 <rect x="360" y="162" width="12" height="58" rx="2" fill="#4a9d8f"/>
-                <line x1="296" y1="220" x2="380" y2="220" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-                <text x="296" y="162" font-family="DM Serif Display" font-size="18" fill="rgba(240,239,232,0.9)">94%</text>
+                <line x1="296" y1="220" x2="380" y2="220" stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+                <text x="296" y="162" fontFamily="DM Serif Display" fontSize="18" fill="rgba(240,239,232,0.9)">94%</text>
 
                 {/* Anonymous mask icon */}
-                <rect x="175" y="220" width="70" height="50" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                <circle cx="210" cy="237" r="9" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-                <path d="M199 252 q11-10 22 0" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round"/>
-                <line x1="200" y1="260" x2="220" y2="260" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+                <rect x="175" y="220" width="70" height="50" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" strokeWidth="1"/>
+                <circle cx="210" cy="237" r="9" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5"/>
+                <path d="M199 252 q11-10 22 0" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="200" y1="260" x2="220" y2="260" stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
 
                 {/* Connecting lines */}
-                <line x1="136" y1="145" x2="155" y2="155" stroke="rgba(74,157,143,0.2)" stroke-width="1" stroke-dasharray="4 3"/>
-                <line x1="265" y1="165" x2="284" y2="175" stroke="rgba(74,157,143,0.2)" stroke-width="1" stroke-dasharray="4 3"/>
-                <line x1="100" y1="227" x2="155" y2="230" stroke="rgba(74,157,143,0.15)" stroke-width="1" stroke-dasharray="4 3"/>
+                <line x1="136" y1="145" x2="155" y2="155" stroke="rgba(74,157,143,0.2)" strokeWidth="1" strokeDasharray="4 3"/>
+                <line x1="265" y1="165" x2="284" y2="175" stroke="rgba(74,157,143,0.2)" strokeWidth="1" strokeDasharray="4 3"/>
+                <line x1="100" y1="227" x2="155" y2="230" stroke="rgba(74,157,143,0.15)" strokeWidth="1" stroke-dasharray="4 3"/>
               </svg>
             </div>
 
@@ -193,8 +194,8 @@ export default function VoterAuth() {
 
                 <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '12px' }}>Send code to:</div>
                 <div className="otp-channel">
-                  <div className={`otp-opt ${otpChannel === 'email' ? 'sel' : ''}`} onClick={() => setOtpChannel('email')}>📧 Email</div>
-                  <div className={`otp-opt ${otpChannel === 'phone' ? 'sel' : ''}`} onClick={() => setOtpChannel('phone')}>📱 Phone</div>
+                  <div className={`otp-opt ${otpChannel === 'email' ? 'sel' : ''}`} onClick={() => setOtpChannel('email')}><IconMail size={18} style={{marginRight: 8}}/> Email</div>
+                  <div className={`otp-opt ${otpChannel === 'phone' ? 'sel' : ''}`} onClick={() => setOtpChannel('phone')}><IconDeviceMobile size={18} style={{marginRight: 8}}/> Phone</div>
                 </div>
 
                 <button 

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import LogoMark from '../components/LogoMark';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/Portal.css';
+import { IconLock, IconShield, IconClipboardList, IconBolt, IconMasksTheater, IconCopyright } from '@tabler/icons-react';
 
 export default function AccessPortal() {
   return (
@@ -116,11 +117,11 @@ export default function AccessPortal() {
 
         {/* SECURITY BAR */}
         <div className="security-bar">
-          <div className="sec-item"><span className="sec-icon">🔒</span>Encrypted sessions</div>
-          <div className="sec-item"><span className="sec-icon">🛡</span>SQL injection protection</div>
-          <div className="sec-item"><span className="sec-icon">📋</span>Full audit logging</div>
-          <div className="sec-item"><span className="sec-icon">⚡</span>Rate limiting active</div>
-          <div className="sec-item"><span className="sec-icon">🎭</span>Anonymous voting</div>
+          <div className="sec-item"><span className="sec-icon"><IconLock size={16}/></span>Encrypted sessions</div>
+          <div className="sec-item"><span className="sec-icon"><IconShield size={16}/></span>SQL injection protection</div>
+          <div className="sec-item"><span className="sec-icon"><IconClipboardList size={16}/></span>Full audit logging</div>
+          <div className="sec-item"><span className="sec-icon"><IconBolt size={16}/></span>Rate limiting active</div>
+          <div className="sec-item"><span className="sec-icon"><IconMasksTheater size={16}/></span>Anonymous voting</div>
         </div>
       </main>
 
@@ -128,7 +129,7 @@ export default function AccessPortal() {
       <footer className="portal-footer">
         <div className="footer-left">
           <LogoMark />
-          <span className="footer-copy">© 2025 VoteGuard</span>
+          <span className="footer-copy"><IconCopyright size={14}/> 2025 VoteGuard</span>
         </div>
         <div className="footer-links">
           <a href="#">Privacy</a>

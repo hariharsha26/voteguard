@@ -4,6 +4,7 @@ import Loader from '../components/Loader';
 import useRevealOnScroll from '../hooks/useRevealOnScroll';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/Landing.css';
+import { IconBolt, IconBuildingBank, IconSchool, IconBox, IconClipboardList, IconBuilding, IconWorld, IconCopyright } from '@tabler/icons-react';
 
 export default function Landing() {
   const [loaderDone, setLoaderDone] = useState(false);
@@ -133,7 +134,7 @@ export default function Landing() {
                       <div className="dash-log">
                         <span className="ok">✓</span> <span>VOTE_CAST</span> · user_4821 · 14:32:01<br />
                         <span className="ok">✓</span> <span>TOKEN_GEN</span> · user_4820 · 14:31:58<br />
-                        <span className="warn">⚡</span> <span>RATE_LIMIT</span> · user_4799 · 14:30:12<br />
+                        <span className="warn"><IconBolt size={14}/></span> <span>RATE_LIMIT</span> · user_4799 · 14:30:12<br />
                         <span className="ok">✓</span> <span>OTP_VERIFY</span> · user_4818 · 14:29:44
                       </div>
                     </div>
@@ -452,12 +453,12 @@ export default function Landing() {
           </div>
           <div className="use-grid">
             {[
-              { icon: '🏛', title: 'Colleges', desc: 'Student body elections with full audit trail and transparency.' },
-              { icon: '🎓', title: 'Universities', desc: 'Faculty, senate, and departmental governance elections.', delay: '0.05s' },
-              { icon: '🗳', title: 'Student Councils', desc: 'Representative elections with anonymous voting and real-time results.', delay: '0.1s' },
-              { icon: '📋', title: 'Department Elections', desc: 'Internal departmental polls and position voting at scale.', delay: '0.15s' },
-              { icon: '🏢', title: 'Institutional Committees', desc: 'Board and committee decisions with documented audit records.', delay: '0.2s' },
-              { icon: '🌐', title: 'Organizational Elections', desc: 'NGOs, associations, and professional bodies managing member votes.', delay: '0.25s' },
+              { icon: <IconBuildingBank size={32}/>, title: 'Colleges', desc: 'Student body elections with full audit trail and transparency.' },
+              { icon: <IconSchool size={32}/>, title: 'Universities', desc: 'Faculty, senate, and departmental governance elections.', delay: '0.05s' },
+              { icon: <IconBox size={32}/>, title: 'Student Councils', desc: 'Representative elections with anonymous voting and real-time results.', delay: '0.1s' },
+              { icon: <IconClipboardList size={32}/>, title: 'Department Elections', desc: 'Internal departmental polls and position voting at scale.', delay: '0.15s' },
+              { icon: <IconBuilding size={32}/>, title: 'Institutional Committees', desc: 'Board and committee decisions with documented audit records.', delay: '0.2s' },
+              { icon: <IconWorld size={32}/>, title: 'Organizational Elections', desc: 'NGOs, associations, and professional bodies managing member votes.', delay: '0.25s' },
             ].map((card, i) => (
               <div key={i} className="use-card reveal" style={card.delay ? { transitionDelay: card.delay } : undefined}>
                 <div className="use-icon">{card.icon}</div>
@@ -564,7 +565,7 @@ export default function Landing() {
             </div>
           </div>
           <div className="footer-bottom">
-            <span className="footer-copy">© 2025 VoteGuard. All rights reserved.</span>
+            <span className="footer-copy"><IconCopyright size={14}/> 2025 VoteGuard. All rights reserved.</span>
             <span className="footer-copy">Secure Election Governance Platform</span>
           </div>
         </footer>
