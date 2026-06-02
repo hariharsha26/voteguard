@@ -324,3 +324,134 @@
   background: var(--gold2);
 }
 
+/* ═══════════════════════════════════════════════════
+   2026 Admin Identity Gate Redesign
+   ═══════════════════════════════════════════════════ */
+.admin-auth-page {
+  --bg: #080a0d;
+  --bg2: #0e1116;
+  --bg3: #151922;
+  --glass: rgba(18, 23, 31, 0.72);
+  --glass2: rgba(18, 23, 31, 0.88);
+  --border: rgba(255,255,255,0.09);
+  --border2: rgba(255,255,255,0.17);
+  --text: #f6f8fb;
+  --text2: #b1bac8;
+  --text3: #788394;
+  --gold: #f6c25e;
+  --gold2: rgba(246,194,94,0.12);
+  --gold3: rgba(246,194,94,0.24);
+  --teal: #69f1c4;
+  --teal2: rgba(105,241,196,0.12);
+  --red: #ff6b6b;
+  --red2: rgba(255,107,107,0.1);
+  background:
+    linear-gradient(135deg, rgba(246,194,94,0.07), transparent 32%),
+    linear-gradient(315deg, rgba(105,241,196,0.06), transparent 42%),
+    var(--bg);
+}
+
+.admin-auth-page .left-panel,
+.admin-auth-page .right-panel,
+.admin-auth-page .auth-card,
+.admin-auth-page .sec-panel {
+  background: color-mix(in srgb, var(--bg2) 82%, transparent);
+  border-color: var(--border);
+  box-shadow: var(--shadow-tight);
+}
+
+.admin-auth-page .left-panel,
+.admin-auth-page .right-panel,
+.admin-auth-page .auth-card {
+  border-radius: 8px;
+}
+
+.admin-auth-page .left-headline,
+.admin-auth-page .card-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.admin-auth-page .left-headline {
+  font-size: 3.2rem;
+  line-height: 1.04;
+}
+
+.admin-auth-page .left-desc,
+.admin-auth-page .card-sub,
+.admin-auth-page .field-hint,
+.admin-auth-page .attempt-info {
+  color: var(--text2);
+}
+
+.admin-auth-page .admin-badge,
+.admin-auth-page .version,
+.admin-auth-page .admin-access-badge {
+  border-radius: 999px;
+  border-color: var(--gold3);
+  background: var(--gold2);
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.admin-auth-page .field input,
+.admin-auth-page .field select,
+.admin-auth-page .otp-channel,
+.admin-auth-page .otp-opt {
+  background: color-mix(in srgb, var(--bg3) 78%, transparent);
+  border-color: var(--border);
+  border-radius: 8px;
+}
+
+.admin-auth-page .field input:focus,
+.admin-auth-page .field select:focus {
+  border-color: var(--gold3);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold3) 55%, transparent);
+}
+
+.admin-auth-page .btn-main {
+  background: linear-gradient(135deg, var(--gold), #fff4d6);
+  color: #191104;
+}
+
+.admin-auth-page .sec-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.admin-auth-page .illus-svg {
+  filter: drop-shadow(0 22px 36px rgba(246,194,94,0.12));
+}
+
+[data-theme="light"] .admin-auth-page {
+  --bg: #f4f7fb;
+  --bg2: #ffffff;
+  --bg3: #edf2f7;
+  --glass: rgba(255,255,255,0.78);
+  --glass2: rgba(255,255,255,0.92);
+  --border: rgba(15,23,42,0.11);
+  --border2: rgba(15,23,42,0.18);
+  --text: #121722;
+  --text2: #4f5f73;
+  --text3: #7a8798;
+  --gold: #aa741c;
+  --gold2: rgba(170,116,28,0.08);
+  --gold3: rgba(170,116,28,0.18);
+  --teal: #087f6f;
+  --teal2: rgba(8,127,111,0.09);
+  --red: #c24141;
+  --red2: rgba(194,65,65,0.08);
+  background:
+    linear-gradient(135deg, rgba(170,116,28,0.09), transparent 32%),
+    linear-gradient(315deg, rgba(8,127,111,0.065), transparent 42%),
+    var(--bg);
+}
+
+[data-theme="light"] .admin-auth-page .left-panel,
+[data-theme="light"] .admin-auth-page .right-panel,
+[data-theme="light"] .admin-auth-page .auth-card,
+[data-theme="light"] .admin-auth-page .sec-panel {
+  background: rgba(255,255,255,0.84);
+}
