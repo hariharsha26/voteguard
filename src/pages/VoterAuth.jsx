@@ -18,8 +18,8 @@ export default function VoterAuth() {
 
   const handleVerifyOTP = (e) => {
     e.preventDefault();
-    alert('Voter Authentication Successful! Redirecting to Access Portal.');
-    navigate('/portal');
+    alert('Voter Authentication Successful! Redirecting to Voter Cockpit.');
+    navigate('/voter');
   };
 
   return (
