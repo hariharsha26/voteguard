@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import LogoMark from '../components/LogoMark';
 import ThemeToggle from '../components/ThemeToggle';
+import SpotlightCard from '../components/ReactBits/SpotlightCard';
 import '../styles/Portal.css';
 import { IconLock, IconShield, IconClipboardList, IconBolt, IconMasksTheater, IconCopyright } from '@tabler/icons-react';
 
@@ -39,7 +40,12 @@ export default function AccessPortal() {
         {/* CARDS */}
         <div className="cards-row">
           {/* VOTER */}
-          <Link className="portal-card card-voter" to="/voter-auth">
+          <SpotlightCard
+            as={Link}
+            className="portal-card card-voter"
+            to="/voter-auth"
+            spotlightColor="rgba(105, 241, 196, 0.18)"
+          >
             <div className="card-icon-wrap">
               <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /><path d="M9 11l-2 10 5-3 5 3-2-10" strokeDasharray="1 0" /></svg>
             </div>
@@ -56,10 +62,15 @@ export default function AccessPortal() {
                 Enter <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 7h8M8 4l3 3-3 3" /></svg>
               </div>
             </div>
-          </Link>
+          </SpotlightCard>
 
           {/* ADMIN */}
-          <Link className="portal-card card-admin" to="/admin-auth">
+          <SpotlightCard
+            as={Link}
+            className="portal-card card-admin"
+            to="/admin-auth"
+            spotlightColor="rgba(246, 194, 94, 0.2)"
+          >
             <div className="card-icon-wrap">
               <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M9 12l2 2 4-4" /></svg>
             </div>
@@ -76,10 +87,15 @@ export default function AccessPortal() {
                 Enter <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 7h8M8 4l3 3-3 3" /></svg>
               </div>
             </div>
-          </Link>
+          </SpotlightCard>
 
           {/* LEARN MORE */}
-          <Link className="portal-card card-learn" to="/">
+          <SpotlightCard
+            as={Link}
+            className="portal-card card-learn"
+            to="/"
+            spotlightColor="rgba(165, 180, 252, 0.16)"
+          >
             <div className="card-icon-wrap">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
             </div>
@@ -96,7 +112,7 @@ export default function AccessPortal() {
                 Explore <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 7h8M8 4l3 3-3 3" /></svg>
               </div>
             </div>
-          </Link>
+          </SpotlightCard>
         </div>
 
         {/* FLOW DIAGRAM */}

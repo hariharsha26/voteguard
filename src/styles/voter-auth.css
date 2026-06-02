@@ -295,3 +295,131 @@
   background: var(--teal2);
 }
 
+/* ═══════════════════════════════════════════════════
+   2026 Voter Identity Gate Redesign
+   ═══════════════════════════════════════════════════ */
+.voter-auth-page {
+  --bg: #080a0d;
+  --bg2: #0e1116;
+  --bg3: #151922;
+  --glass: rgba(18, 23, 31, 0.72);
+  --glass2: rgba(18, 23, 31, 0.88);
+  --border: rgba(255,255,255,0.09);
+  --border2: rgba(255,255,255,0.17);
+  --text: #f6f8fb;
+  --text2: #b1bac8;
+  --text3: #788394;
+  --teal: #69f1c4;
+  --teal2: rgba(105,241,196,0.12);
+  --teal3: rgba(105,241,196,0.28);
+  --gold: #f6c25e;
+  --gold2: rgba(246,194,94,0.12);
+  --red: #ff6b6b;
+  --red2: rgba(255,107,107,0.1);
+  background:
+    linear-gradient(135deg, rgba(105,241,196,0.075), transparent 32%),
+    linear-gradient(315deg, rgba(246,194,94,0.045), transparent 46%),
+    var(--bg);
+}
+
+.voter-auth-page .left-panel,
+.voter-auth-page .right-panel,
+.voter-auth-page .auth-card {
+  background: color-mix(in srgb, var(--bg2) 82%, transparent);
+  border-color: var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-tight);
+}
+
+.voter-auth-page .left-headline,
+.voter-auth-page .card-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.voter-auth-page .left-headline {
+  font-size: 3.2rem;
+  line-height: 1.04;
+}
+
+.voter-auth-page .left-desc,
+.voter-auth-page .card-sub,
+.voter-auth-page .field-hint,
+.voter-auth-page .trust-badge {
+  color: var(--text2);
+}
+
+.voter-auth-page .trust-badge,
+.voter-auth-page .sec-ind,
+.voter-auth-page .tab-btn,
+.voter-auth-page .otp-channel,
+.voter-auth-page .otp-opt {
+  border-radius: 8px;
+}
+
+.voter-auth-page .trust-badge,
+.voter-auth-page .sec-ind {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.voter-auth-page .field input,
+.voter-auth-page .field select,
+.voter-auth-page .otp-channel,
+.voter-auth-page .otp-opt {
+  background: color-mix(in srgb, var(--bg3) 78%, transparent);
+  border-color: var(--border);
+}
+
+.voter-auth-page .field input:focus,
+.voter-auth-page .field select:focus {
+  border-color: var(--teal3);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal3) 55%, transparent);
+}
+
+.voter-auth-page .auth-tabs {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.voter-auth-page .tab-btn.active {
+  background: var(--teal2);
+  color: var(--teal);
+  border-color: var(--teal3);
+}
+
+.voter-auth-page .illus-svg {
+  filter: drop-shadow(0 22px 36px rgba(105,241,196,0.12));
+}
+
+[data-theme="light"] .voter-auth-page {
+  --bg: #f4f7fb;
+  --bg2: #ffffff;
+  --bg3: #edf2f7;
+  --glass: rgba(255,255,255,0.78);
+  --glass2: rgba(255,255,255,0.92);
+  --border: rgba(15,23,42,0.11);
+  --border2: rgba(15,23,42,0.18);
+  --text: #121722;
+  --text2: #4f5f73;
+  --text3: #7a8798;
+  --teal: #087f6f;
+  --teal2: rgba(8,127,111,0.09);
+  --teal3: rgba(8,127,111,0.2);
+  --gold: #aa741c;
+  --gold2: rgba(170,116,28,0.08);
+  --red: #c24141;
+  --red2: rgba(194,65,65,0.08);
+  background:
+    linear-gradient(135deg, rgba(8,127,111,0.08), transparent 32%),
+    linear-gradient(315deg, rgba(170,116,28,0.055), transparent 46%),
+    var(--bg);
+}
+
+[data-theme="light"] .voter-auth-page .left-panel,
+[data-theme="light"] .voter-auth-page .right-panel,
+[data-theme="light"] .voter-auth-page .auth-card {
+  background: rgba(255,255,255,0.84);
+}

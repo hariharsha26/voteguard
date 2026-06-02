@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import Loader from '../components/Loader';
 import useRevealOnScroll from '../hooks/useRevealOnScroll';
 import ThemeToggle from '../components/ThemeToggle';
-import '../styles/Landing.css';
-import { IconBolt, IconBuildingBank, IconSchool, IconBox, IconClipboardList, IconBuilding, IconWorld, IconCopyright } from '@tabler/icons-react';
+import DecryptedText from '../components/ReactBits/DecryptedText';
+import CountUpNumber from '../components/ReactBits/CountUpNumber';
+import heroLayer from '../assets/hero.png';
+import '../styles/landing.css';
 
 export default function Landing() {
   const [loaderDone, setLoaderDone] = useState(false);
@@ -81,9 +83,23 @@ export default function Landing() {
           <div className="hero-text reveal">
             <div className="eyebrow">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4" fill="#d4a843" opacity="0.8" /></svg>
-              Election Governance Platform
+              <DecryptedText
+                text="Election Governance Platform"
+                className="eyebrow-copy"
+                encryptedClassName="decrypt-running"
+                delay={300}
+              />
             </div>
-            <h1 className="hero-h1">Modern Elections.<br /><em>Transparent</em> Governance.<br />Trusted Results.</h1>
+            <h1 className="hero-h1">
+              Modern Elections.<br />
+              <em>Private ballots.</em><br />
+              <DecryptedText
+                text="Trusted Results."
+                className="hero-decrypt"
+                encryptedClassName="decrypt-running"
+                delay={850}
+              />
+            </h1>
             <p className="hero-sub">VoteGuard is a secure election governance platform designed for colleges, institutions, and organizations. Anonymous voting, audit-driven transparency, real-time monitoring, and administrative control — unified.</p>
             <div className="hero-btns">
               <button className="btn-primary" onClick={() => scrollTo('cta')}>Get Started</button>
@@ -111,17 +127,17 @@ export default function Landing() {
                     <div className="dash-stats">
                       <div className="dash-stat">
                         <div className="dash-stat-label">Votes Cast</div>
-                        <div className="dash-stat-value">2,847</div>
+                        <div className="dash-stat-value"><CountUpNumber to={2847} separator="," /></div>
                         <div className="dash-stat-sub">↑ 94.2%</div>
                       </div>
                       <div className="dash-stat">
                         <div className="dash-stat-label">Active Elections</div>
-                        <div className="dash-stat-value">3</div>
+                        <div className="dash-stat-value"><CountUpNumber to={3} /></div>
                         <div className="dash-stat-sub">Live now</div>
                       </div>
                       <div className="dash-stat">
                         <div className="dash-stat-label">Audit Events</div>
-                        <div className="dash-stat-value">14.2k</div>
+                        <div className="dash-stat-value"><CountUpNumber to={14.2} decimals={1} suffix="k" /></div>
                         <div className="dash-stat-sub">Tracked</div>
                       </div>
                     </div>
@@ -142,6 +158,7 @@ export default function Landing() {
                 </div>
               </div>
             </div>
+            <img className="hero-layer-asset" src={heroLayer} alt="" aria-hidden="true" />
             <div className="hero-badge">
               <div className="badge-dot"></div>
               <div className="badge-text"><strong>3 elections</strong> running live right now</div>
