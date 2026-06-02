@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VoteGuard — Administrator Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #080809;
+  --bg2: #0e0e11;
+  --bg3: #13131a;
+  --glass: rgba(255,255,255,0.04);
+  --glass2: rgba(255,255,255,0.07);
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.13);
+  --text: #eeedf6;
+  --text2: #7a7a8c;
+  --text3: #42424e;
+  --gold: #d4a843;
+  --gold2: rgba(212,168,67,0.1);
+  --gold3: rgba(212,168,67,0.22);
+  --teal: #4a9d8f;
+  --teal2: rgba(74,157,143,0.1);
+  --red: #e05555;
+  --red2: rgba(224,85,85,0.1);
+  --red3: rgba(224,85,85,0.2);
+  --font: 'DM Sans', sans-serif;
+  --serif: 'DM Serif Display', serif;
+  --mono: 'IBM Plex Mono', monospace;
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── LAYOUT ── */
+.auth-wrap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100vh;
+}
+
+/* ── LEFT PANEL ── */
+.left-panel {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  justify-content: center; align-items: center;
+  padding: 60px 56px;
+  position: relative; overflow: hidden;
+}
+.left-panel::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse at 25% 35%, rgba(212,168,67,0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 75%, rgba(74,157,143,0.04) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* Subtle scanline texture */
+.left-panel::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,0.008) 3px, rgba(255,255,255,0.008) 4px);
+  pointer-events: none;
+}
+
+.left-inner { position: relative; z-index: 1; max-width: 460px; }
+
+.left-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 56px; }
+.logo-mark {
+  display: grid; grid-template-columns: 14px 14px;
+  grid-template-rows: 14px 14px; gap: 3px;
+}
+.logo-mark span { background: var(--text); opacity: 0.6; }
+.logo-mark span:nth-child(1) { border-radius: 3px; }
+.logo-mark span:nth-child(2) { border-radius: 50%; }
+.logo-mark span:nth-child(3) { clip-path: polygon(50% 0%,0% 100%,100% 100%); border-radius: 0; }
+.logo-mark span:nth-child(4) { border-radius: 3px; }
+.logo-name { font-family: var(--serif); font-size: 16px; color: var(--text); }
+
+/* Illustration */
+.left-illus { margin-bottom: 44px; }
+.illus-svg { width: 100%; max-width: 400px; }
+
+.left-headline {
+  font-family: var(--serif);
+  font-size: clamp(24px, 2.8vw, 38px);
+  line-height: 1.12; color: var(--text);
+  letter-spacing: -0.5px; margin-bottom: 14px;
+}
+.left-desc { font-size: 14px; color: var(--text2); line-height: 1.7; margin-bottom: 36px; }
+
+.admin-badges { display: flex; flex-direction: column; gap: 10px; }
+.admin-badge { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text2); }
+.badge-icon {
+  width: 22px; height: 22px; border-radius: 5px;
+  background: var(--gold2); border: 1px solid rgba(212,168,67,0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; flex-shrink: 0;
+}
+
+/* ── RIGHT PANEL ── */
+.right-panel {
+  display: flex; flex-direction: column;
+  justify-content: center; align-items: center;
+  padding: 40px 48px;
+  position: relative; overflow: hidden;
+}
+.right-panel::before {
+  content: '';
+  position: absolute; top: -300px; right: -300px;
+  width: 600px; height: 600px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(212,168,67,0.03) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ── ADMIN CARD ── */
+.auth-card {
+  width: 100%; max-width: 420px;
+  background: var(--glass);
+  border: 1px solid var(--border2);
+  border-radius: 16px;
+  padding: 40px;
+  backdrop-filter: blur(24px);
+  position: relative; z-index: 1;
+  animation: cardIn 0.5s ease both;
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Admin access badge */
+.admin-access-badge {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; margin-bottom: 28px;
+  background: var(--gold2);
+  border: 1px solid rgba(212,168,67,0.2);
+  border-radius: 20px; padding: 7px 18px;
+  font-size: 11px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--gold);
+}
+
+.card-logo { text-align: center; margin-bottom: 6px; }
+.card-title {
+  font-family: var(--serif); font-size: 24px;
+  color: var(--text); text-align: center; margin-bottom: 6px;
+}
+.card-sub {
+  font-size: 12px; color: var(--text3); text-align: center;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  margin-bottom: 32px;
+}
+
+/* FORMS */
+.form-view { display: none; }
+.form-view.active { display: block; animation: fadeSlide 0.3s ease; }
+@keyframes fadeSlide {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.field { margin-bottom: 16px; }
+.field label {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px; color: var(--text2); letter-spacing: 0.06em;
+  text-transform: uppercase; margin-bottom: 7px;
+}
+.field-hint { font-size: 10px; color: var(--text3); text-transform: none; letter-spacing: 0; }
+.field input {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-family: var(--mono); font-size: 14px;
+  color: var(--text); outline: none;
+  letter-spacing: 0.04em;
+  transition: border-color 0.2s, background 0.2s;
+}
+.field input::placeholder { color: var(--text3); font-family: var(--mono); }
+.field input:focus {
+  border-color: rgba(212,168,67,0.3);
+  background: rgba(212,168,67,0.04);
+}
+.field input.error { border-color: var(--red3); background: var(--red2); }
+
+/* Character counter */
+.char-count {
+  text-align: right; font-size: 10px; color: var(--text3);
+  margin-top: 5px; font-family: var(--mono);
+}
+.char-count.ok { color: var(--teal); }
+
+/* BUTTONS */
+.btn-main {
+  width: 100%; padding: 13px;
+  background: var(--text); color: var(--bg);
+  border: none; border-radius: var(--radius-sm);
+  font-family: var(--font); font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: background 0.2s, transform 0.15s;
+  margin-bottom: 0;
+}
+.btn-main:hover { background: #d4d3dc; transform: translateY(-1px); }
+.btn-main.gold {
+  background: var(--gold); color: #1a1000;
+}
+.btn-main.gold:hover { background: #e0b84e; }
+
+/* ERROR BANNER */
+.error-banner {
+  background: var(--red2); border: 1px solid var(--red3);
+  border-radius: var(--radius-sm); padding: 12px 14px;
+  margin-bottom: 16px; font-size: 13px; color: var(--red);
+  display: none;
+}
+.error-banner.show { display: block; animation: fadeSlide 0.3s ease; }
+.cooldown-timer { font-family: var(--mono); font-size: 13px; color: var(--red); font-weight: 500; }
+.attempt-info { font-size: 11px; color: var(--text3); margin-top: 6px; }
+
+/* SECURITY PANEL */
+.sec-panel {
+  margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.sec-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text3); }
+.sec-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); flex-shrink: 0; }
+
+/* OTP */
+.otp-channel { display: flex; gap: 10px; margin-bottom: 20px; }
+.otp-opt {
+  flex: 1; padding: 12px 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px; color: var(--text2);
+  cursor: pointer; text-align: center;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.otp-opt.sel { border-color: rgba(212,168,67,0.3); color: var(--gold); background: var(--gold2); }
+
+.otp-wrap { display: flex; gap: 8px; justify-content: center; margin: 16px 0 8px; }
+.otp-wrap input {
+  width: 48px; height: 58px;
+  text-align: center; font-size: 22px; font-weight: 500;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+  font-family: var(--mono); outline: none; letter-spacing: 0;
+  transition: border-color 0.2s, background 0.2s;
+}
+.otp-wrap input:focus { border-color: rgba(212,168,67,0.3); background: rgba(212,168,67,0.04); }
+
+.back-link {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--text3); cursor: pointer;
+  margin-bottom: 22px; width: fit-content;
+  transition: color 0.2s;
+}
+.back-link:hover { color: var(--text2); }
+
+/* FOOTER */
+.auth-footer { margin-top: 24px; text-align: center; }
+.auth-footer-top { font-family: var(--serif); font-size: 13px; color: var(--text3); margin-bottom: 4px; }
+.auth-footer-tag { font-family: var(--mono); font-size: 10px; color: var(--text3); letter-spacing: 0.08em; margin-bottom: 12px; }
+.auth-footer-links a { font-size: 11px; color: var(--text3); text-decoration: none; margin: 0 8px; transition: color 0.2s; }
+.auth-footer-links a:hover { color: var(--text2); }
+.version { font-family: var(--mono); font-size: 10px; color: var(--text3); margin-top: 8px; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .auth-wrap { grid-template-columns: 1fr; }
+  .left-panel { display: none; }
+  .right-panel { padding: 40px 24px; min-height: 100vh; }
+}
+</style>
+</head>
+<body>
+
+<div class="auth-wrap">
+
+  <!-- LEFT PANEL -->
+  <div class="left-panel">
+    <div class="left-inner">
+      <div class="left-logo">
+        <div class="logo-mark"><span></span><span></span><span></span><span></span></div>
+        <span class="logo-name">VoteGuard</span>
+      </div>
+
+      <div class="left-illus">
+        <svg class="illus-svg" viewBox="0 0 420 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="grid2" width="28" height="28" patternUnits="userSpaceOnUse">
+              <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(255,255,255,0.025)" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <rect width="420" height="320" fill="url(#grid2)" rx="12"/>
+
+          <!-- Central shield -->
+          <path d="M210 60 L170 75 v50 c0 38 18 68 40 80 22-12 40-42 40-80 V75 z"
+            fill="rgba(212,168,67,0.07)" stroke="rgba(212,168,67,0.35)" stroke-width="1.5" stroke-linejoin="round"/>
+          <!-- Inner shield check -->
+          <path d="M196 145 l10 10 20-22" stroke="#d4a843" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+          <!-- Glow ring around shield -->
+          <circle cx="210" cy="135" r="52" fill="none" stroke="rgba(212,168,67,0.08)" stroke-width="20"/>
+          <circle cx="210" cy="135" r="52" fill="none" stroke="rgba(212,168,67,0.15)" stroke-width="1" stroke-dasharray="6 5"/>
+
+          <!-- Top left: Audit dashboard panel -->
+          <rect x="30" y="40" width="110" height="100" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
+          <text x="42" y="58" font-family="IBM Plex Mono" font-size="7" fill="rgba(212,168,67,0.6)">AUDIT DASHBOARD</text>
+          <rect x="42" y="64" width="85" height="6" rx="2" fill="rgba(255,255,255,0.07)"/>
+          <rect x="42" y="75" width="65" height="6" rx="2" fill="rgba(255,255,255,0.05)"/>
+          <rect x="42" y="86" width="75" height="6" rx="2" fill="rgba(255,255,255,0.07)"/>
+          <rect x="42" y="97" width="55" height="6" rx="2" fill="rgba(255,255,255,0.05)"/>
+          <rect x="42" y="108" width="80" height="6" rx="2" fill="rgba(255,255,255,0.07)"/>
+          <circle cx="38" cy="67" r="2.5" fill="#d4a843" opacity="0.5"/>
+          <circle cx="38" cy="78" r="2.5" fill="#4a9d8f" opacity="0.5"/>
+          <circle cx="38" cy="89" r="2.5" fill="#d4a843" opacity="0.5"/>
+          <circle cx="38" cy="100" r="2.5" fill="rgba(255,255,255,0.2)"/>
+          <circle cx="38" cy="111" r="2.5" fill="#4a9d8f" opacity="0.5"/>
+
+          <!-- Top right: Election monitoring -->
+          <rect x="280" y="40" width="110" height="90" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
+          <text x="292" y="58" font-family="IBM Plex Mono" font-size="7" fill="rgba(74,157,143,0.7)">ELECTIONS LIVE</text>
+          <!-- mini progress bars -->
+          <rect x="292" y="64" width="85" height="6" rx="3" fill="rgba(255,255,255,0.06)"/>
+          <rect x="292" y="64" width="65" height="6" rx="3" fill="rgba(74,157,143,0.5)"/>
+          <rect x="292" y="75" width="85" height="6" rx="3" fill="rgba(255,255,255,0.06)"/>
+          <rect x="292" y="75" width="40" height="6" rx="3" fill="rgba(212,168,67,0.5)"/>
+          <rect x="292" y="86" width="85" height="6" rx="3" fill="rgba(255,255,255,0.06)"/>
+          <rect x="292" y="86" width="78" height="6" rx="3" fill="rgba(74,157,143,0.7)"/>
+          <text x="292" y="110" font-family="DM Serif Display" font-size="20" fill="rgba(240,239,232,0.85)">3</text>
+          <text x="310" y="110" font-family="IBM Plex Mono" font-size="8" fill="rgba(255,255,255,0.3)">active</text>
+
+          <!-- Bottom left: governance analytics -->
+          <rect x="30" y="190" width="110" height="100" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
+          <text x="42" y="208" font-family="IBM Plex Mono" font-size="7" fill="rgba(255,255,255,0.3)">GOVERNANCE</text>
+          <!-- bar chart -->
+          <rect x="42" y="255" width="14" height="30" rx="2" fill="rgba(212,168,67,0.25)"/>
+          <rect x="60" y="240" width="14" height="45" rx="2" fill="rgba(212,168,67,0.45)"/>
+          <rect x="78" y="230" width="14" height="55" rx="2" fill="rgba(212,168,67,0.65)"/>
+          <rect x="96" y="220" width="14" height="65" rx="2" fill="#d4a843"/>
+          <line x1="42" y1="285" x2="120" y2="285" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+
+          <!-- Bottom right: system health -->
+          <rect x="280" y="175" width="110" height="115" rx="10" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
+          <text x="292" y="193" font-family="IBM Plex Mono" font-size="7" fill="rgba(255,255,255,0.3)">SYSTEM HEALTH</text>
+          <rect x="292" y="200" width="85" height="6" rx="2" fill="rgba(255,255,255,0.06)"/>
+          <rect x="292" y="200" width="85" height="6" rx="2" fill="rgba(74,157,143,0.4)"/>
+          <rect x="292" y="212" width="85" height="6" rx="2" fill="rgba(255,255,255,0.06)"/>
+          <rect x="292" y="212" width="70" height="6" rx="2" fill="rgba(74,157,143,0.6)"/>
+          <rect x="292" y="224" width="85" height="6" rx="2" fill="rgba(255,255,255,0.06)"/>
+          <rect x="292" y="224" width="85" height="6" rx="2" fill="rgba(74,157,143,0.4)"/>
+          <rect x="292" y="236" width="85" height="6" rx="2" fill="rgba(255,255,255,0.06)"/>
+          <rect x="292" y="236" width="52" height="6" rx="2" fill="rgba(212,168,67,0.5)"/>
+          <!-- status labels -->
+          <circle cx="380" cy="203" r="3" fill="#4a9d8f"/>
+          <circle cx="380" cy="215" r="3" fill="#4a9d8f"/>
+          <circle cx="380" cy="227" r="3" fill="#4a9d8f"/>
+          <circle cx="380" cy="239" r="3" fill="#d4a843"/>
+
+          <!-- Connecting lines -->
+          <line x1="140" y1="90" x2="165" y2="110" stroke="rgba(212,168,67,0.15)" stroke-width="1" stroke-dasharray="4 3"/>
+          <line x1="280" y1="85" x2="258" y2="110" stroke="rgba(212,168,67,0.15)" stroke-width="1" stroke-dasharray="4 3"/>
+          <line x1="140" y1="240" x2="165" y2="210" stroke="rgba(212,168,67,0.12)" stroke-width="1" stroke-dasharray="4 3"/>
+          <line x1="280" y1="230" x2="258" y2="210" stroke="rgba(212,168,67,0.12)" stroke-width="1" stroke-dasharray="4 3"/>
+        </svg>
+      </div>
+
+      <h1 class="left-headline">Administrative<br/>Control Center</h1>
+      <p class="left-desc">Manage elections, monitor infrastructure, audit voting activity, and maintain election integrity through VoteGuard's governance platform.</p>
+
+      <div class="admin-badges">
+        <div class="admin-badge"><div class="badge-icon">🛡</div>Multi-factor authentication required</div>
+        <div class="admin-badge"><div class="badge-icon">📋</div>All admin sessions are fully audit-logged</div>
+        <div class="admin-badge"><div class="badge-icon">⚡</div>Progressive rate limiting active</div>
+        <div class="admin-badge"><div class="badge-icon">🔒</div>Authorized personnel only</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+    <div class="auth-card" id="auth-card">
+
+      <!-- ── VIEW 1: ADMIN LOGIN ── -->
+      <div class="form-view active" id="view-login">
+        <div class="admin-access-badge">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L2 2.5v3.5c0 2.8 1.8 5.2 4 6 2.2-.8 4-3.2 4-6V2.5L6 1z" stroke="#d4a843" stroke-width="1" fill="rgba(212,168,67,0.2)"/></svg>
+          Authorized Personnel Only
+        </div>
+        <div class="card-logo">
+          <div class="logo-mark" style="margin:0 auto 10px"><span></span><span></span><span></span><span></span></div>
+        </div>
+        <div class="card-title">Administrator Login</div>
+        <div class="card-sub">VoteGuard Governance Platform</div>
+
+        <!-- Error banner (hidden by default) -->
+        <div class="error-banner" id="error-banner">
+          <div id="error-msg">Invalid Admin ID or Password.</div>
+          <div class="attempt-info" id="attempt-info">Remaining attempts: <strong id="attempts-left">2</strong></div>
+        </div>
+
+        <!-- Lockout banner -->
+        <div class="error-banner" id="lockout-banner" style="display:none">
+          Too many failed attempts. Try again in
+          <span class="cooldown-timer" id="countdown">30</span>s
+        </div>
+
+        <div class="field">
+          <label>
+            ADMIN ID
+            <span class="field-hint">Exactly 8 characters</span>
+          </label>
+          <input type="text" id="admin-id" placeholder="VGADM001" maxlength="8" oninput="updateCharCount(this)"/>
+          <div class="char-count" id="char-count">0 / 8</div>
+        </div>
+        <div class="field">
+          <label>PASSWORD</label>
+          <input type="password" id="admin-pass" placeholder="Enter admin password"/>
+        </div>
+
+        <button class="btn-main gold" style="margin-top:8px" onclick="attemptLogin()">Continue</button>
+
+        <div class="sec-panel">
+          <div class="sec-item"><div class="sec-dot"></div>SQL Injection Protection</div>
+          <div class="sec-item"><div class="sec-dot"></div>Multi-Factor Authentication</div>
+          <div class="sec-item"><div class="sec-dot"></div>Audit Logging Enabled</div>
+          <div class="sec-item"><div class="sec-dot"></div>Secure Session Management</div>
+          <div class="sec-item"><div class="sec-dot"></div>Progressive Rate Limiting</div>
+          <div class="sec-item"><div class="sec-dot"></div>Encrypted Transport</div>
+        </div>
+      </div>
+
+      <!-- ── VIEW 2: OTP CHANNEL SELECT ── -->
+      <div class="form-view" id="view-otp-channel">
+        <div class="back-link" onclick="showView('view-login')">← Back</div>
+        <div class="admin-access-badge">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L2 2.5v3.5c0 2.8 1.8 5.2 4 6 2.2-.8 4-3.2 4-6V2.5L6 1z" stroke="#d4a843" stroke-width="1" fill="rgba(212,168,67,0.2)"/></svg>
+          Two-Factor Authentication
+        </div>
+        <div class="card-title">Verify Identity</div>
+        <div class="card-sub" style="margin-bottom:24px">Choose where to receive your verification code</div>
+
+        <div class="otp-channel">
+          <div class="otp-opt sel" onclick="selChannel(this)">📧 Email</div>
+          <div class="otp-opt" onclick="selChannel(this)">📱 Phone</div>
+        </div>
+
+        <button class="btn-main gold" onclick="showView('view-otp-enter');sendOTP(this)">Send OTP</button>
+
+        <div class="sec-panel" style="grid-template-columns:1fr;margin-top:18px">
+          <div class="sec-item"><div class="sec-dot"></div>Code expires in 5 minutes</div>
+          <div class="sec-item"><div class="sec-dot"></div>Session locked to this device</div>
+        </div>
+      </div>
+
+      <!-- ── VIEW 3: OTP ENTER ── -->
+      <div class="form-view" id="view-otp-enter">
+        <div class="back-link" onclick="showView('view-otp-channel')">← Back</div>
+        <div class="card-title">Enter Verification Code</div>
+        <div class="card-sub" style="margin-bottom:8px">Admin Access · 2FA Required</div>
+
+        <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Code sent to your registered contact</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:4px">Expires in <span style="color:var(--gold);font-family:var(--mono)" id="otp-timer">5:00</span></div>
+
+        <div class="otp-wrap">
+          <input maxlength="1" oninput="otpNext(this)"/>
+          <input maxlength="1" oninput="otpNext(this)"/>
+          <input maxlength="1" oninput="otpNext(this)"/>
+          <input maxlength="1" oninput="otpNext(this)"/>
+          <input maxlength="1" oninput="otpNext(this)"/>
+          <input maxlength="1" oninput="otpNext(this)"/>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--text3);margin-bottom:18px">
+          Didn't receive it? <a style="color:var(--gold);cursor:pointer;text-decoration:none">Resend code</a>
+        </div>
+
+        <button class="btn-main gold">Verify &amp; Login</button>
+
+        <div class="sec-panel" style="margin-top:18px">
+          <div class="sec-item"><div class="sec-dot"></div>Audit log on verify</div>
+          <div class="sec-item"><div class="sec-dot"></div>Rate limited</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="auth-footer">
+      <div class="auth-footer-top">VoteGuard</div>
+      <div class="auth-footer-tag">SECURE ELECTION GOVERNANCE PLATFORM</div>
+      <div class="auth-footer-links">
+        <a href="#">Privacy Policy</a>
+        <a href="#">Terms</a>
+        <a href="#">Support</a>
+      </div>
+      <div class="version">v2.4.1 · build 20250601</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let failCount = 0;
+const MAX_FAILS = 3;
+let locked = false;
+
+function showView(id) {
+  document.querySelectorAll('.form-view').forEach(v => v.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+function selChannel(el) {
+  document.querySelectorAll('.otp-opt').forEach(o => o.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+function updateCharCount(inp) {
+  const cc = document.getElementById('char-count');
+  const n = inp.value.length;
+  cc.textContent = n + ' / 8';
+  cc.className = 'char-count' + (n === 8 ? ' ok' : '');
+}
+
+function attemptLogin() {
+  if (locked) return;
+  const id = document.getElementById('admin-id').value.trim();
+  const pw = document.getElementById('admin-pass').value;
+
+  // Demo: accept VGADM001 / admin123, reject everything else
+  if (id === 'VGADM001' && pw === 'admin123') {
+    showView('view-otp-channel');
+    return;
+  }
+
+  failCount++;
+  const eb = document.getElementById('error-banner');
+  const ai = document.getElementById('attempt-info');
+  const al = document.getElementById('attempts-left');
+  const remaining = MAX_FAILS - failCount;
+
+  document.getElementById('admin-id').classList.add('error');
+  document.getElementById('admin-pass').classList.add('error');
+
+  if (remaining <= 0) {
+    eb.style.display = 'none';
+    locked = true;
+    startCooldown(30);
+    document.getElementById('error-banner').style.display = 'none';
+  } else {
+    document.getElementById('error-msg').textContent = 'Invalid Admin ID or Password.';
+    al.textContent = remaining;
+    ai.style.display = 'block';
+    eb.classList.add('show');
+  }
+
+  setTimeout(() => {
+    document.getElementById('admin-id').classList.remove('error');
+    document.getElementById('admin-pass').classList.remove('error');
+  }, 1200);
+}
+
+function startCooldown(secs) {
+  const lb = document.getElementById('lockout-banner');
+  const cd = document.getElementById('countdown');
+  lb.style.display = 'block';
+  lb.classList.add('show');
+  let t = secs;
+  cd.textContent = t;
+  const iv = setInterval(() => {
+    t--;
+    cd.textContent = t;
+    if (t <= 0) {
+      clearInterval(iv);
+      lb.style.display = 'none';
+      lb.classList.remove('show');
+      locked = false;
+      failCount = 0;
+    }
+  }, 1000);
+}
+
+function sendOTP(btn) {
+  btn.textContent = 'Code Sent ✓';
+  btn.style.background = 'rgba(74,157,143,0.2)';
+  btn.style.color = '#4a9d8f';
+  btn.style.border = '1px solid rgba(74,157,143,0.3)';
+  setTimeout(() => showView('view-otp-enter'), 700);
+  startOTPTimer();
+}
+
+function startOTPTimer() {
+  let t = 300;
+  const el = document.getElementById('otp-timer');
+  const iv = setInterval(() => {
+    t--;
+    const m = Math.floor(t/60);
+    const s = t % 60;
+    if (el) el.textContent = m + ':' + String(s).padStart(2,'0');
+    if (t <= 0) { clearInterval(iv); if (el) el.textContent = 'Expired'; }
+  }, 1000);
+}
+
+function otpNext(input) {
+  if (input.value.length === 1) {
+    const next = input.nextElementSibling;
+    if (next) next.focus();
+  }
+}
+
+document.querySelectorAll('.otp-wrap input').forEach((inp, i, arr) => {
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' && !inp.value && i > 0) arr[i-1].focus();
+  });
+  inp.addEventListener('paste', e => {
+    e.preventDefault();
+    const digits = e.clipboardData.getData('text').replace(/\D/g,'').slice(0,6);
+    arr.forEach((a,j) => { if (digits[j]) a.value = digits[j]; });
+  });
+});
+</script>
+</body>
+</html>
