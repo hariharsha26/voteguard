@@ -16,17 +16,8 @@ export default function Landing() {
     setLoaderDone(true);
   }, []);
 
-  // Show nav + page after loader
-  useEffect(() => {
-    if (loaderDone) {
-      navRef.current?.classList.add('vis');
-      pageRef.current?.classList.add('vis');
-      buildBars();
-    }
-  }, [loaderDone]);
-
   // Build dashboard chart bars
-  function buildBars() {
+  const buildBars = useCallback(() => {
     const wrap = barsRef.current;
     if (!wrap) return;
     wrap.innerHTML = '';
@@ -40,7 +31,16 @@ export default function Landing() {
       b.style.animationDelay = (i * 0.08) + 's';
       wrap.appendChild(b);
     });
-  }
+  }, []);
+
+  // Show nav + page after loader
+  useEffect(() => {
+    if (loaderDone) {
+      navRef.current?.classList.add('vis');
+      pageRef.current?.classList.add('vis');
+      buildBars();
+    }
+  }, [loaderDone, buildBars]);
 
   useRevealOnScroll(pageRef, loaderDone);
 

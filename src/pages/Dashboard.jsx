@@ -28,7 +28,7 @@ export default function Dashboard() {
   ]);
 
   // Users Mock State
-  const [voters, setVoters] = useState([
+  const [voters] = useState([
     { roll: '21CS001', name: 'Aarav Mehta', dept: 'CSE', status: 'Voted' },
     { roll: '21CS042', name: 'Priya Sharma', dept: 'CSE', status: 'Voted' },
     { roll: '22EC015', name: 'Rohan Verma', dept: 'ECE', status: 'Registered' },

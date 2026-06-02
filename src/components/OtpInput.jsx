@@ -24,7 +24,7 @@ export default function OtpInput({ length = 6, focusColor = 'teal', className = 
     }
   }, []);
 
-  const handlePaste = useCallback((e, index) => {
+  const handlePaste = useCallback((e) => {
     e.preventDefault();
     const digits = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, length);
     inputsRef.current.forEach((inp, j) => {

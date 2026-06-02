@@ -7,7 +7,7 @@ export default function VoterDashboard() {
   const navigate = useNavigate();
 
   // 1. Core Voter Information
-  const [voter, setVoter] = useState({
+  const [voter] = useState({
     name: 'Harsha Vardhan',
     userId: 'STU20264818',
     department: 'Computer Science & Engineering',
@@ -728,6 +728,7 @@ export default function VoterDashboard() {
 
                       <div className="otp-modal-actions">
                         <span>Didn't receive code? <button className="btn-link-action" onClick={handleSendVotingOtp}>Resend</button></span>
+                        {otpSent && <span style={{ color: 'var(--teal)', fontSize: '11px', display: 'block', marginTop: '4px' }}>✓ Verification code dispatched.</span>}
                       </div>
 
                       <div className="modal-footer-btns">
