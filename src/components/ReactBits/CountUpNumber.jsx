@@ -18,7 +18,7 @@ export default function CountUpNumber({
     if (!node) return undefined;
 
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      setValue(to);
+      requestAnimationFrame(() => setValue(to));
       return undefined;
     }
 

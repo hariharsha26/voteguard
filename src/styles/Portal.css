@@ -81,38 +81,64 @@
   max-width: 960px; width: 100%;
   animation: fadeUp 0.7s ease 0.2s both;
 }
-.portal-card {
-  position: relative; overflow: hidden;
-  background: rgba(255,255,255,0.03);
+.portal-card-spotlight {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
   border: 1px solid var(--border);
-  border-radius: 16px; padding: 36px 32px;
-  cursor: pointer; text-decoration: none;
-  display: flex; flex-direction: column;
-  transition: border-color 0.3s, transform 0.3s, background 0.3s;
+  background: var(--bg2);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s, box-shadow 0.3s;
+}
+.portal-card-spotlight:hover {
+  transform: translateY(-6px);
+}
+.portal-card-spotlight.voter-spotlight:hover {
+  border-color: var(--teal3);
+  box-shadow: 0 12px 32px rgba(74, 157, 143, 0.08);
+}
+.portal-card-spotlight.admin-spotlight:hover {
+  border-color: var(--gold3);
+  box-shadow: 0 12px 32px rgba(212, 168, 67, 0.06);
+}
+.portal-card-spotlight.learn-spotlight {
+  border-style: dashed;
+}
+.portal-card-spotlight.learn-spotlight:hover {
+  border-style: solid;
+  border-color: var(--border2);
+  box-shadow: 0 12px 32px rgba(255, 255, 255, 0.02);
+}
+
+.portal-card {
+  position: relative;
+  z-index: 2;
+  background: transparent;
+  padding: 36px 32px;
+  cursor: pointer;
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
   color: inherit;
+  width: 100%;
+  height: 100%;
 }
 .portal-card::before {
   content: ''; position: absolute; inset: 0; border-radius: 16px;
   opacity: 0; transition: opacity 0.3s;
 }
-.portal-card:hover { transform: translateY(-6px); }
 
 /* Voter card */
-.card-voter { border-color: var(--border); }
-.card-voter::before { background: linear-gradient(135deg, rgba(74,157,143,0.06), transparent 60%); }
-.card-voter:hover { border-color: var(--teal3); background: rgba(74,157,143,0.04); }
+.card-voter::before { background: linear-gradient(135deg, rgba(74,157,143,0.04), transparent 60%); }
 .card-voter:hover::before { opacity: 1; }
 
 /* Admin card */
-.card-admin { border-color: var(--border); }
-.card-admin::before { background: linear-gradient(135deg, rgba(212,168,67,0.07), transparent 60%); }
-.card-admin:hover { border-color: var(--gold3); background: rgba(212,168,67,0.04); }
+.card-admin::before { background: linear-gradient(135deg, rgba(212,168,67,0.04), transparent 60%); }
 .card-admin:hover::before { opacity: 1; }
 
 /* Learn More card */
-.card-learn { border-color: var(--border); border-style: dashed; }
-.card-learn::before { background: linear-gradient(135deg, rgba(255,255,255,0.03), transparent 60%); }
-.card-learn:hover { border-color: var(--border2); border-style: solid; background: rgba(255,255,255,0.03); }
+.card-learn::before { background: linear-gradient(135deg, rgba(255,255,255,0.02), transparent 60%); }
 .card-learn:hover::before { opacity: 1; }
 
 .card-icon-wrap {

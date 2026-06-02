@@ -7,6 +7,8 @@ import DecryptedText from '../components/ReactBits/DecryptedText';
 import CountUpNumber from '../components/ReactBits/CountUpNumber';
 import heroLayer from '../assets/hero.png';
 import '../styles/landing.css';
+import { IconBolt, IconBuildingBank, IconSchool, IconBox, IconClipboardList, IconBuilding, IconWorld, IconCopyright } from '@tabler/icons-react';
+
 
 export default function Landing() {
   const [loaderDone, setLoaderDone] = useState(false);

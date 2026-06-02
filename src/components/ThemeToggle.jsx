@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { IconMoon, IconSun } from '@tabler/icons-react';
 
 /**
  * Premium switch-type Theme Toggle component.

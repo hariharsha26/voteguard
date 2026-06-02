@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import VoterNavigation from '../components/VoterNavigation';
+import SpotlightCard from '../components/ReactBits/SpotlightCard';
+import CountUpNumber from '../components/ReactBits/CountUpNumber';
 import '../styles/VoterDashboard.css';
 import { IconShield, IconSettings, IconBulb, IconAlertTriangle, IconLock, IconBox, IconTrophy, IconX, IconInfoCircle } from '@tabler/icons-react';
 
@@ -130,7 +132,6 @@ export default function VoterDashboard() {
   const [wizardStep, setWizardStep] = useState(null); // null | 'access_code_validating' | 'access_code_invalid' | 'details' | 'eligibility_validating' | 'eligible_confirmed' | 'token_generating' | 'token_gen_complete' | 'token_entry' | 'token_verifying' | 'token_verified' | 'candidate_select' | 'vote_review' | 'submitting' | 'success'
   const [wizardLoadingMessage, setWizardLoadingMessage] = useState('');
   const [wizardLoadingProgress, setWizardLoadingProgress] = useState(0);
-  const [wizardSessionId, setWizardSessionId] = useState('');
   const [wizardGeneratedToken, setWizardGeneratedToken] = useState('');
   const [wizardTokenInput, setWizardTokenInput] = useState('');
   const [selectedCandidate, setSelectedCandidate] = useState(null);
@@ -630,110 +631,118 @@ export default function VoterDashboard() {
             <div className="home-dashboard-row">
               {/* Left Column: Election Status Widget */}
               <div className="home-column-left">
-                <div className="election-widget-card">
-                  <div className="widget-header">
-                    <div className="live-pill">
-                      <span className="live-dot" />
-                      LIVE ELECTION
+                <SpotlightCard className="election-widget-card-spotlight-wrapper" spotlightColor="rgba(74, 157, 143, 0.15)">
+                  <div className="election-widget-card" style={{ border: 'none', background: 'transparent', padding: 0 }}>
+                    <div className="widget-header">
+                      <div className="live-pill">
+                        <span className="live-dot" />
+                        LIVE ELECTION
+                      </div>
+                      <span className="election-id">ID: ELC-2026-CR</span>
                     </div>
-                    <span className="election-id">ID: ELC-2026-CR</span>
-                  </div>
 
-                  <h2 className="widget-election-title">CR Election 2026</h2>
-                  
-                  {/* Countdown Timer */}
-                  <div className="widget-countdown-box">
-                    <span className="countdown-label">TIME REMAINING</span>
-                    <span className="countdown-timer">{formatTime(timeLeft)}</span>
-                  </div>
+                    <h2 className="widget-election-title">CR Election 2026</h2>
+                    
+                    {/* Countdown Timer */}
+                    <div className="widget-countdown-box">
+                      <span className="countdown-label">TIME REMAINING</span>
+                      <span className="countdown-timer">{formatTime(timeLeft)}</span>
+                    </div>
 
-                  {/* Vote Status Indicator */}
-                  <div className="widget-status-indicator">
-                    <span className="status-label">Vote Status</span>
+                    {/* Vote Status Indicator */}
+                    <div className="widget-status-indicator">
+                      <span className="status-label">Vote Status</span>
+                      {crElection.voted ? (
+                        <div className="vote-status-confirmed-pill">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+                          <span>Vote Submitted at {crElection.voteTime}</span>
+                        </div>
+                      ) : (
+                        <div className="vote-status-pending-pill animate-pulse">
+                          <span className="status-dot-pending" />
+                          <span>Pending Vote</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* CTA button */}
                     {crElection.voted ? (
-                      <div className="vote-status-confirmed-pill">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                        <span>Vote Submitted at {crElection.voteTime}</span>
-                      </div>
+                      <button className="btn-widget-action voted" onClick={handleParticipate}>
+                        View Election Details
+                      </button>
                     ) : (
-                      <div className="vote-status-pending-pill animate-pulse">
-                        <span className="status-dot-pending" />
-                        <span>Pending Vote</span>
-                      </div>
+                      <button className="btn-widget-action active" onClick={handleParticipate}>
+                        Participate / Vote Now →
+                      </button>
                     )}
                   </div>
-
-                  {/* CTA button */}
-                  {crElection.voted ? (
-                    <button className="btn-widget-action voted" onClick={handleParticipate}>
-                      View Election Details
-                    </button>
-                  ) : (
-                    <button className="btn-widget-action active" onClick={handleParticipate}>
-                      Participate / Vote Now →
-                    </button>
-                  )}
-                </div>
+                </SpotlightCard>
               </div>
 
               {/* Right Column: Recent Activity & Security */}
-              <div className="home-column-right">
+              <div className="home-column-right" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 {/* Recent Activity */}
-                <div className="home-card-panel">
-                  <div className="panel-header">
-                    <h3>Recent Activity</h3>
-                    <button className="panel-header-action-btn" onClick={() => setActiveTab('Activity')}>View All</button>
-                  </div>
-                  
-                  <div className="recent-activity-list">
-                    {logs.slice(0, 3).map((log, index) => (
-                      <div key={index} className="activity-item-simple">
-                        <div className="activity-time-lbl">[{log.ts.split(' ')[0]}]</div>
-                        <div className="activity-details-col">
-                          <span className="activity-event-name">{log.ev}</span>
-                          <span className="activity-event-desc">{log.desc}</span>
+                <SpotlightCard className="panel-spotlight-wrapper" spotlightColor="rgba(255, 255, 255, 0.08)">
+                  <div className="home-card-panel" style={{ border: 'none', background: 'transparent', padding: 0 }}>
+                    <div className="panel-header">
+                      <h3>Recent Activity</h3>
+                      <button className="panel-header-action-btn" onClick={() => setActiveTab('Activity')}>View All</button>
+                    </div>
+                    
+                    <div className="recent-activity-list">
+                      {logs.slice(0, 3).map((log, index) => (
+                        <div key={index} className="activity-item-simple">
+                          <div className="activity-time-lbl">[{log.ts.split(' ')[0]}]</div>
+                          <div className="activity-details-col">
+                            <span className="activity-event-name">{log.ev}</span>
+                            <span className="activity-event-desc">{log.desc}</span>
+                          </div>
+                          <span className="activity-check-icon">✓</span>
                         </div>
-                        <span className="activity-check-icon">✓</span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                </SpotlightCard>
 
                 {/* Secure Guidelines */}
-                <div className="home-card-panel bg-gradient-panel">
-                  <h3 style={{ marginBottom: '8px', color: 'var(--text)' }}>Trust &amp; Secrecy Policy</h3>
-                  <p style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: '1.5' }}>
-                    VoteGuard ensures mathematical secrecy. Your ballot is detached from your registration token, encrypted locally, and transmitted anonymously. The system operator has no technical means of linking voter identities to cast ballots.
-                  </p>
-                  <div className="security-badges-wrap" style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
-                    <span className="sec-tag">Blind Signatures</span>
-                    <span className="sec-tag">AES-256 Ledger</span>
-                    <span className="sec-tag">SHA-256 Audit</span>
+                <SpotlightCard className="panel-spotlight-wrapper" spotlightColor="rgba(255, 255, 255, 0.08)">
+                  <div className="home-card-panel bg-gradient-panel" style={{ border: 'none', background: 'transparent', padding: 0 }}>
+                    <h3 style={{ marginBottom: '8px', color: 'var(--text)' }}>Trust &amp; Secrecy Policy</h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: '1.5' }}>
+                      VoteGuard ensures mathematical secrecy. Your ballot is detached from your registration token, encrypted locally, and transmitted anonymously. The system operator has no technical means of linking voter identities to cast ballots.
+                    </p>
+                    <div className="security-badges-wrap" style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+                      <span className="sec-tag">Blind Signatures</span>
+                      <span className="sec-tag">AES-256 Ledger</span>
+                      <span className="sec-tag">SHA-256 Audit</span>
+                    </div>
                   </div>
-                </div>
+                </SpotlightCard>
               </div>
             </div>
             
             {/* Demo Controller Widget */}
-            <div className="demo-controller-card">
-              <div className="demo-header">
-                <span className="demo-icon"><IconSettings size={18} /></span>
-                <strong>SIMULATOR CONTROL (DEMO UTILITY)</strong>
+            <SpotlightCard className="demo-spotlight-wrapper" spotlightColor="rgba(212, 168, 67, 0.12)" style={{ marginTop: '24px' }}>
+              <div className="demo-controller-card" style={{ border: 'none', background: 'transparent', padding: 0 }}>
+                <div className="demo-header">
+                  <span className="demo-icon"><IconSettings size={18} /></span>
+                  <strong>SIMULATOR CONTROL (DEMO UTILITY)</strong>
+                </div>
+                <p>Simulate administrative changes to verify responsiveness and real-time interface rendering.</p>
+                <div className="demo-buttons-row">
+                  <button className="btn-demo-util" onClick={toggleCRResults}>
+                    Toggle "CR Election 2026" Results (Currently: {crElection.resultsPublic ? 'Public' : 'Private'})
+                  </button>
+                  <button className="btn-demo-util" onClick={() => {
+                    setElections(prev => prev.map(e => e.id === 'ELC-2026-CR' ? { ...e, voted: false, voteTime: null, verificationToken: null } : e));
+                    setSessionRecovery(null);
+                    triggerToast('CR Election Vote Status Reset!');
+                  }}>
+                    Reset Vote Status (Allow Re-voting)
+                  </button>
+                </div>
               </div>
-              <p>Simulate administrative changes to verify responsiveness and real-time interface rendering.</p>
-              <div className="demo-buttons-row">
-                <button className="btn-demo-util" onClick={toggleCRResults}>
-                  Toggle "CR Election 2026" Results (Currently: {crElection.resultsPublic ? 'Public' : 'Private'})
-                </button>
-                <button className="btn-demo-util" onClick={() => {
-                  setElections(prev => prev.map(e => e.id === 'ELC-2026-CR' ? { ...e, voted: false, voteTime: null, verificationToken: null } : e));
-                  setSessionRecovery(null);
-                  triggerToast('CR Election Vote Status Reset!');
-                }}>
-                  Reset Vote Status (Allow Re-voting)
-                </button>
-              </div>
-            </div>
+            </SpotlightCard>
 
           </div>
         )}
@@ -1364,36 +1373,44 @@ export default function VoterDashboard() {
 
                   {/* Dashboard metrics summary (Step 1) */}
                   <div className="voter-dashboard-metrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
-                    <div className="metric-card welcome" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <SpotlightCard className="metric-card welcome" spotlightColor="rgba(255, 255, 255, 0.06)" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <span className="metric-title" style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: '600' }}>Voter Identity</span>
                       <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '750', color: 'var(--text)' }}>{voter.name}</h3>
                       <span className="metric-subtitle" style={{ fontSize: '11px', color: 'var(--text2)' }}>{voter.rollNumber} • CS</span>
-                    </div>
-                    <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    </SpotlightCard>
+                    <SpotlightCard className="metric-card" spotlightColor="rgba(255, 255, 255, 0.08)" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <span className="metric-title" style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: '600' }}>Eligible Polls</span>
-                      <span className="metric-val" style={{ fontSize: '20px', fontWeight: '750', color: 'var(--text)' }}>{eligibleCount}</span>
+                      <span className="metric-val" style={{ fontSize: '20px', fontWeight: '750', color: 'var(--text)' }}>
+                        <CountUpNumber to={eligibleCount} from={0} duration={1} />
+                      </span>
                       <span className="metric-subtitle" style={{ fontSize: '11px', color: 'var(--text3)' }}>Registered Profiles</span>
-                    </div>
-                    <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    </SpotlightCard>
+                    <SpotlightCard className="metric-card" spotlightColor="rgba(74, 157, 143, 0.15)" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <span className="metric-title" style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: '600' }}>Active Channels</span>
-                      <span className="metric-val text-teal" style={{ fontSize: '20px', fontWeight: '750', color: 'var(--teal)' }}>{activeCount}</span>
+                      <span className="metric-val text-teal" style={{ fontSize: '20px', fontWeight: '750', color: 'var(--teal)' }}>
+                        <CountUpNumber to={activeCount} from={0} duration={1} />
+                      </span>
                       <span className="metric-subtitle" style={{ fontSize: '11px', color: 'var(--text3)' }}>Live Elections</span>
-                    </div>
-                    <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    </SpotlightCard>
+                    <SpotlightCard className="metric-card" spotlightColor="rgba(255, 255, 255, 0.08)" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <span className="metric-title" style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: '600' }}>Voting Status</span>
-                      <span className="metric-val" style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text)', margin: '4px 0' }}>{votedCount} Cast / {pendingCount} Pending</span>
+                      <span className="metric-val" style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text)', margin: '4px 0' }}>
+                        <CountUpNumber to={votedCount} from={0} duration={1} /> Cast / <CountUpNumber to={pendingCount} from={0} duration={1} /> Pending
+                      </span>
                       <span className="metric-subtitle" style={{ fontSize: '11px', color: 'var(--text3)' }}>Secure Ballots</span>
-                    </div>
-                    <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+                    </SpotlightCard>
+                    <SpotlightCard className="metric-card" spotlightColor="rgba(255, 255, 255, 0.08)" style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
                       <span className="metric-title" style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: '600' }}>Recent Activity</span>
                       <span className="metric-val-activity truncate" title={latestActivity} style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', margin: '4px 0' }}>{latestActivity}</span>
                       <span className="metric-subtitle" style={{ fontSize: '11px', color: 'var(--text3)' }}>Signed Audit Log</span>
-                    </div>
-                    <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    </SpotlightCard>
+                    <SpotlightCard className="metric-card" spotlightColor="rgba(212, 168, 67, 0.15)" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <span className="metric-title" style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: '600' }}>Notifications</span>
-                      <span className="metric-val text-gold" style={{ fontSize: '20px', fontWeight: '750', color: 'var(--gold)' }}>{unreadNotifsCount}</span>
+                      <span className="metric-val text-gold" style={{ fontSize: '20px', fontWeight: '750', color: 'var(--gold)' }}>
+                        <CountUpNumber to={unreadNotifsCount} from={0} duration={1} />
+                      </span>
                       <span className="metric-subtitle" style={{ fontSize: '11px', color: 'var(--text3)' }}>Unread Announcements</span>
-                    </div>
+                    </SpotlightCard>
                   </div>
 
                   <div className="elections-split-layout" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '32px' }}>
@@ -1404,76 +1421,80 @@ export default function VoterDashboard() {
                       
                       <div className="elections-grid-container" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
                         {elections.filter(e => e.type === 'Public').map((elec) => (
-                          <div key={elec.id} className={`election-card-item ${elec.status.toLowerCase()}`} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <div className="card-badge-line" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span className={`status-badge-lbl ${elec.status.toLowerCase()}`} style={{ fontSize: '9px', fontWeight: '700', textTransform: 'uppercase', padding: '2px 8px', borderRadius: '4px', background: 'var(--teal2)', color: 'var(--teal)', border: '1px solid var(--teal3)' }}>{elec.status}</span>
-                              <span className="card-election-id" style={{ fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>{elec.id}</span>
-                            </div>
-
-                            <h3 className="card-title-text" style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>{elec.name}</h3>
-                            <p className="card-desc-text" style={{ margin: 0, fontSize: '12.5px', color: 'var(--text2)', lineHeight: '1.5' }}>{elec.description}</p>
-
-                            <div className="card-stats-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '10px 0' }}>
-                              <div className="card-stat" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                <span className="lbl" style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase' }}>Starts</span>
-                                <span className="val" style={{ fontSize: '11.5px', color: 'var(--text2)' }}>{elec.start}</span>
+                          <SpotlightCard key={elec.id} className="election-card-spotlight-item-wrapper" spotlightColor="rgba(74, 157, 143, 0.12)">
+                            <div className={`election-card-item ${elec.status.toLowerCase()}`} style={{ border: 'none', background: 'transparent', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', height: '100%', boxSizing: 'border-box' }}>
+                              <div className="card-badge-line" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span className={`status-badge-lbl ${elec.status.toLowerCase()}`} style={{ fontSize: '9px', fontWeight: '700', textTransform: 'uppercase', padding: '2px 8px', borderRadius: '4px', background: 'var(--teal2)', color: 'var(--teal)', border: '1px solid var(--teal3)' }}>{elec.status}</span>
+                                <span className="card-election-id" style={{ fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>{elec.id}</span>
                               </div>
-                              <div className="card-stat" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                <span className="lbl" style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase' }}>Ends</span>
-                                <span className="val" style={{ fontSize: '11.5px', color: 'var(--text2)' }}>{elec.end}</span>
-                              </div>
-                            </div>
 
-                            <div className="elections-listing-actions-row" style={{ display: 'flex', gap: '12px' }}>
-                              <button className="btn-card-details select-action-btn" onClick={() => setSelectedElection(elec)} style={{ flex: 1 }}>
-                                View Details
-                              </button>
-                              {!elec.voted && elec.status === 'Active' && (
-                                <button className="btn-card-details participate-action-btn" onClick={() => launchVotingWizard(elec)} style={{ flex: 1, background: 'var(--teal)', color: 'white', border: 'none' }}>
-                                  Participate
+                              <h3 className="card-title-text" style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>{elec.name}</h3>
+                              <p className="card-desc-text" style={{ margin: 0, fontSize: '12.5px', color: 'var(--text2)', lineHeight: '1.5' }}>{elec.description}</p>
+
+                              <div className="card-stats-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '10px 0' }}>
+                                <div className="card-stat" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span className="lbl" style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase' }}>Starts</span>
+                                  <span className="val" style={{ fontSize: '11.5px', color: 'var(--text2)' }}>{elec.start}</span>
+                                </div>
+                                <div className="card-stat" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span className="lbl" style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase' }}>Ends</span>
+                                  <span className="val" style={{ fontSize: '11.5px', color: 'var(--text2)' }}>{elec.end}</span>
+                                </div>
+                              </div>
+
+                              <div className="elections-listing-actions-row" style={{ display: 'flex', gap: '12px' }}>
+                                <button className="btn-card-details select-action-btn" onClick={() => setSelectedElection(elec)} style={{ flex: 1 }}>
+                                  View Details
                                 </button>
-                              )}
+                                {!elec.voted && elec.status === 'Active' && (
+                                  <button className="btn-card-details participate-action-btn" onClick={() => launchVotingWizard(elec)} style={{ flex: 1, background: 'var(--teal)', color: 'white', border: 'none' }}>
+                                    Participate
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
+                          </SpotlightCard>
                         ))}
                       </div>
                     </div>
 
                     {/* Private Elections Access Card Column */}
                     <div className="elections-private-column">
-                      <div className="join-private-election-card" style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
-                        <div className="card-shield-decor" style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--surface)', border: '1px solid var(--border2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--teal)' }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '18px', height: '18px' }}>
-                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                          </svg>
-                        </div>
-                        <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>Join Private Election</h2>
-                        <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text2)', lineHeight: '1.5' }}>Enter an election access code provided by your administrator.</p>
-                        
-                        <div className="private-join-form" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '4px' }}>
-                          <input
-                            type="text"
-                            placeholder="Access Code"
-                            value={accessCodeInput}
-                            onChange={(e) => setAccessCodeInput(e.target.value)}
-                            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 12px', borderRadius: '6px', fontSize: '13px', outline: 'none', fontFamily: 'var(--font-mono)' }}
-                          />
-                          <button 
-                            className="btn-join-private-submit" 
-                            onClick={handleJoinPrivateElection}
-                            style={{ background: 'var(--text)', color: 'var(--bg)', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: '600', fontSize: '12.5px', cursor: 'pointer', transition: 'opacity 0.2s' }}
-                            onMouseOver={(e) => e.target.style.opacity = '0.9'}
-                            onMouseOut={(e) => e.target.style.opacity = '1'}
-                          >
-                            Join Election
-                          </button>
-                        </div>
+                      <SpotlightCard className="join-private-spotlight-wrapper" spotlightColor="rgba(255, 255, 255, 0.08)">
+                        <div className="join-private-election-card" style={{ border: 'none', background: 'transparent', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
+                          <div className="card-shield-decor" style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--surface)', border: '1px solid var(--border2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--teal)' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '18px', height: '18px' }}>
+                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                          </div>
+                          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>Join Private Election</h2>
+                          <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text2)', lineHeight: '1.5' }}>Enter an election access code provided by your administrator.</p>
+                          
+                          <div className="private-join-form" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '4px' }}>
+                            <input
+                              type="text"
+                              placeholder="Access Code"
+                              value={accessCodeInput}
+                              onChange={(e) => setAccessCodeInput(e.target.value)}
+                              style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 12px', borderRadius: '6px', fontSize: '13px', outline: 'none', fontFamily: 'var(--font-mono)' }}
+                            />
+                            <button 
+                              className="btn-join-private-submit" 
+                              onClick={handleJoinPrivateElection}
+                              style={{ background: 'var(--text)', color: 'var(--bg)', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: '600', fontSize: '12.5px', cursor: 'pointer', transition: 'opacity 0.2s' }}
+                              onMouseOver={(e) => e.target.style.opacity = '0.9'}
+                              onMouseOut={(e) => e.target.style.opacity = '1'}
+                            >
+                              Join Election
+                            </button>
+                          </div>
 
-                        <div className="admin-hint-text" style={{ fontSize: '11px', color: 'var(--text3)', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '4px' }}>
-                          <IconBulb size={16} /> Private access code: <code>VG-ACCESS-CR26</code>
+                          <div className="admin-hint-text" style={{ fontSize: '11px', color: 'var(--text3)', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '4px' }}>
+                            <IconBulb size={16} /> Private access code: <code>VG-ACCESS-CR26</code>
+                          </div>
                         </div>
-                      </div>
+                      </SpotlightCard>
                     </div>
 
                   </div>

@@ -3,13 +3,23 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import LogoMark from '../components/LogoMark';
 import ThemeToggle from '../components/ThemeToggle';
+import CountUpNumber from '../components/ReactBits/CountUpNumber';
+import SpotlightCard from '../components/ReactBits/SpotlightCard';
 import '../styles/Dashboard.css';
-import { IconChartBar, IconBox, IconUsers, IconHeartHandshake, IconTrophy, IconFolder, IconPlug, IconAlertCircle, IconUser, IconBolt, IconBell, IconShield, IconTrendingUp, IconAlertTriangle, IconDeviceFloppy, IconEye, IconPlayerPause, IconPlayerPlay, IconLockOpen, IconPackage, IconInbox, IconCamera, IconPencil, IconRefresh, IconSearch, IconFileDescription, IconScale, IconPlus, IconArchive, IconPin, IconCircleCheck, IconX } from '@tabler/icons-react';
+import { IconChartBar, IconBox, IconUsers, IconHeartHandshake, IconTrophy, IconFolder, IconPlug, IconAlertCircle, IconUser, IconBolt, IconBell, IconShield, IconTrendingUp, IconAlertTriangle, IconDeviceFloppy, IconEye, IconPlayerPause, IconPlayerPlay, IconLockOpen, IconPackage, IconInbox, IconCamera, IconPencil, IconRefresh, IconSearch, IconFileDescription, IconScale, IconPlus, IconArchive, IconPin, IconCircleCheck } from '@tabler/icons-react';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('Dashboard'); // Navigation Tabs
   const [time, setTime] = useState(new Date().toLocaleTimeString());
   const navigate = useNavigate();
+
+  // Clock ticking effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTime(new Date().toLocaleTimeString());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Global Search State
   const [globalSearch, setGlobalSearch] = useState('');
@@ -24,7 +34,7 @@ export default function Dashboard() {
   ]);
 
   // Active Alerts state (Tab 8 Null-State triggers fallback when length is 0)
-  const [activeAlerts, setActiveAlerts] = useState([]);
+  const [activeAlerts] = useState([]);
   const [resolvedAlerts] = useState([
     { id: 'ALT101', title: 'Database connection pool usage spike', severity: 'warning', date: '2026-06-02 11:15', duration: '14 mins', resolution: 'Auto-scaled connection pools' },
     { id: 'ALT102', title: 'Email API provider connection timeout', severity: 'critical', date: '2026-06-02 09:22', duration: '3 mins', resolution: 'Switched to primary backup mail route' },
@@ -1027,158 +1037,184 @@ export default function Dashboard() {
             
             {/* STAT CARDS */}
             <div className="dash-stats-grid">
-              <div className="dash-stat-card">
-                <span className="dash-stat-label">Total Elections</span>
-                <span className="dash-stat-value">{elections.length}</span>
-                <span className="dash-stat-sub neutral">Operational life-cycles</span>
-              </div>
-              <div className="dash-stat-card">
-                <span className="dash-stat-label">Running Polls</span>
-                <span className="dash-stat-value">
-                  {elections.filter(e => e.status === 'Running').length}
-                </span>
-                <span className="dash-stat-sub positive">Live turnout tracking active</span>
-              </div>
-              <div className="dash-stat-card">
-                <span className="dash-stat-label">Completed / Archived</span>
-                <span className="dash-stat-value">
-                  {elections.filter(e => e.status === 'Completed' || e.status === 'Archived').length}
-                </span>
-                <span className="dash-stat-sub neutral">Audit traces stored</span>
-              </div>
+              <SpotlightCard className="dash-stat-card-spotlight" spotlightColor="rgba(212, 168, 67, 0.12)">
+                <div className="dash-stat-card">
+                  <span className="dash-stat-label">Total Elections</span>
+                  <span className="dash-stat-value">
+                    <CountUpNumber to={elections.length} />
+                  </span>
+                  <span className="dash-stat-sub neutral">Operational life-cycles</span>
+                </div>
+              </SpotlightCard>
+              <SpotlightCard className="dash-stat-card-spotlight" spotlightColor="rgba(74, 157, 143, 0.15)">
+                <div className="dash-stat-card">
+                  <span className="dash-stat-label">Running Polls</span>
+                  <span className="dash-stat-value">
+                    <CountUpNumber to={elections.filter(e => e.status === 'Running').length} />
+                  </span>
+                  <span className="dash-stat-sub positive">Live turnout tracking active</span>
+                </div>
+              </SpotlightCard>
+              <SpotlightCard className="dash-stat-card-spotlight" spotlightColor="rgba(212, 168, 67, 0.12)">
+                <div className="dash-stat-card">
+                  <span className="dash-stat-label">Completed / Archived</span>
+                  <span className="dash-stat-value">
+                    <CountUpNumber to={elections.filter(e => e.status === 'Completed' || e.status === 'Archived').length} />
+                  </span>
+                  <span className="dash-stat-sub neutral">Audit traces stored</span>
+                </div>
+              </SpotlightCard>
             </div>
 
             {/* INTEGRITY MONITOR & PROGRESS HEATMAP ROW */}
             <div className="dash-analytics-row">
               {/* Integrity Monitor */}
-              <div className="dash-chart-card">
-                <div className="dash-chart-header">
-                  <span className="dash-chart-title"><IconShield size={18} /> Election Integrity Monitor</span>
-                  <div className="terminal-status">
-                    <div className="terminal-status-dot"></div>
-                    <span>Active Security Throttling</span>
+              <SpotlightCard className="dash-chart-card-spotlight" spotlightColor="rgba(74, 157, 143, 0.12)">
+                <div className="dash-chart-card">
+                  <div className="dash-chart-header">
+                    <span className="dash-chart-title"><IconShield size={18} /> Election Integrity Monitor</span>
+                    <div className="terminal-status">
+                      <div className="terminal-status-dot"></div>
+                      <span>Active Security Throttling</span>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="integrity-grid">
-                  <div className="integrity-tile">
-                    <span className="int-lbl">Duplicate Attempts</span>
-                    <span className="int-val color-green">{securityStats.duplicateAttempts}</span>
-                    <span className="int-sub">Rejected entries</span>
+                  
+                  <div className="integrity-grid">
+                    <div className="integrity-tile">
+                      <span className="int-lbl">Duplicate Attempts</span>
+                      <span className="int-val color-green">
+                        <CountUpNumber to={securityStats.duplicateAttempts} />
+                      </span>
+                      <span className="int-sub">Rejected entries</span>
+                    </div>
+                    <div className="integrity-tile">
+                      <span className="int-lbl">Invalid Tokens Entry</span>
+                      <span className="int-val color-gold">
+                        <CountUpNumber to={securityStats.invalidTokens} />
+                      </span>
+                      <span className="int-sub">Token checks failed</span>
+                    </div>
+                    <div className="integrity-tile">
+                      <span className="int-lbl">Rate-Limited Users</span>
+                      <span className="int-val color-gold">
+                        <CountUpNumber to={securityStats.rateLimitedUsers} />
+                      </span>
+                      <span className="int-sub">Lockout cooldown triggered</span>
+                    </div>
+                    <div className="integrity-tile">
+                      <span className="int-lbl">Blocked Requests</span>
+                      <span className="int-val color-red">
+                        <CountUpNumber to={securityStats.blockedRequests} />
+                      </span>
+                      <span className="int-sub">DoS defense triggered</span>
+                    </div>
                   </div>
-                  <div className="integrity-tile">
-                    <span className="int-lbl">Invalid Tokens Entry</span>
-                    <span className="int-val color-gold">{securityStats.invalidTokens}</span>
-                    <span className="int-sub">Token checks failed</span>
-                  </div>
-                  <div className="integrity-tile">
-                    <span className="int-lbl">Rate-Limited Users</span>
-                    <span className="int-val color-gold">{securityStats.rateLimitedUsers}</span>
-                    <span className="int-sub">Lockout cooldown triggered</span>
-                  </div>
-                  <div className="integrity-tile">
-                    <span className="int-lbl">Blocked Requests</span>
-                    <span className="int-val color-red">{securityStats.blockedRequests}</span>
-                    <span className="int-sub">DoS defense triggered</span>
-                  </div>
-                </div>
 
-                <div className="security-status-msg">
-                  <strong>Diagnostic Status:</strong> Firewall active. Ineligible whitelists verified.
+                  <div className="security-status-msg">
+                    <strong>Diagnostic Status:</strong> Firewall active. Ineligible whitelists verified.
+                  </div>
                 </div>
-              </div>
+              </SpotlightCard>
 
               {/* Heatmap participation */}
-              <div className="dash-chart-card">
-                <div className="dash-chart-header">
-                  <span className="dash-chart-title"><IconTrendingUp size={18} /> Turnout Participation Heatmap</span>
-                  <span className="heatmap-info">Busiest voting hours (Total: 1,950 votes)</span>
-                </div>
+              <SpotlightCard className="dash-chart-card-spotlight" spotlightColor="rgba(212, 168, 67, 0.12)">
+                <div className="dash-chart-card">
+                  <div className="dash-chart-header">
+                    <span className="dash-chart-title"><IconTrendingUp size={18} /> Turnout Participation Heatmap</span>
+                    <span className="heatmap-info">Busiest voting hours (Total: 1,950 votes)</span>
+                  </div>
 
-                <div className="heatmap-bars">
-                  {[
-                    { hr: '09:00', v: 45 },
-                    { hr: '10:00', v: 92 },
-                    { hr: '11:00', v: 120 },
-                    { hr: '12:00', v: 60 },
-                    { hr: '13:00', v: 30 },
-                    { hr: '14:00', v: 75 },
-                    { hr: '15:00', v: 110 },
-                    { hr: '16:00', v: 20 },
-                  ].map((x, i) => (
-                    <div key={i} className="heatmap-col">
-                      <div className="heatmap-bar-fill" style={{ height: `${(x.v/120)*100}%` }}>
-                        <span className="tooltip-val">{x.v}v</span>
+                  <div className="heatmap-bars">
+                    {[
+                      { hr: '09:00', v: 45 },
+                      { hr: '10:00', v: 92 },
+                      { hr: '11:00', v: 120 },
+                      { hr: '12:00', v: 60 },
+                      { hr: '13:00', v: 30 },
+                      { hr: '14:00', v: 75 },
+                      { hr: '15:00', v: 110 },
+                      { hr: '16:00', v: 20 },
+                    ].map((x, i) => (
+                      <div key={i} className="heatmap-col">
+                        <div className="heatmap-bar-fill" style={{ height: `${(x.v/120)*100}%` }}>
+                          <span className="tooltip-val">{x.v}v</span>
+                        </div>
+                        <span className="heatmap-lbl">{x.hr}</span>
                       </div>
-                      <span className="heatmap-lbl">{x.hr}</span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              </SpotlightCard>
             </div>
 
             {/* REAL-TIME TERMINAL AUDIT ROW */}
             <div className="dash-analytics-row" style={{ gridTemplateColumns: '1fr' }}>
-              <div className="dash-terminal-card">
-                <div className="dash-terminal-header">
-                  <span className="dash-terminal-title">REAL-TIME AUDIT STREAM (Severity Categorized)</span>
-                  <div className="terminal-status">
-                    <span style={{ fontSize: '11px', color: 'var(--text2)', marginRight: '10px' }}>Showing recent active logs</span>
-                    <div className="terminal-status-dot"></div>
-                    <span>Active Observability</span>
+              <SpotlightCard className="dash-terminal-card-spotlight" spotlightColor="rgba(255, 255, 255, 0.05)">
+                <div className="dash-terminal-card">
+                  <div className="dash-terminal-header">
+                    <span className="dash-terminal-title">REAL-TIME AUDIT STREAM (Severity Categorized)</span>
+                    <div className="terminal-status">
+                      <span style={{ fontSize: '11px', color: 'var(--text2)', marginRight: '10px' }}>Showing recent active logs</span>
+                      <div className="terminal-status-dot"></div>
+                      <span>Active Observability</span>
+                    </div>
+                  </div>
+
+                  <div className="dash-terminal-log" style={{ height: '220px' }}>
+                    {filteredLogs.map((log, index) => (
+                      <div key={index} className={`log-row-level ${log.level.toLowerCase()}`}>
+                        <span className="ts">[{log.ts}]</span>
+                        <span className={`log-severity-badge ${log.level.toLowerCase()}`}>{log.level}</span>
+                        <span className="ev">{log.ev}</span>
+                        <span className="user">{log.usr}</span> · {log.desc}
+                      </div>
+                    ))}
+                    <div ref={logEndRef} />
                   </div>
                 </div>
-
-                <div className="dash-terminal-log" style={{ height: '220px' }}>
-                  {filteredLogs.map((log, index) => (
-                    <div key={index} className={`log-row-level ${log.level.toLowerCase()}`}>
-                      <span className="ts">[{log.ts}]</span>
-                      <span className={`log-severity-badge ${log.level.toLowerCase()}`}>{log.level}</span>
-                      <span className="ev">{log.ev}</span>
-                      <span className="user">{log.usr}</span> · {log.desc}
-                    </div>
-                  ))}
-                  <div ref={logEndRef} />
-                </div>
-              </div>
+              </SpotlightCard>
             </div>
 
             {/* QUICK PROFILE OVERVIEW */}
             <div className="dash-system-row">
-              <div className="dash-control-card">
-                <span className="dash-control-title">Active Operator Profile</span>
-                <div className="admin-profile-cockpit">
-                  <div className="admin-avatar-lg">HH</div>
-                  <div className="admin-profile-details">
-                    <h3>Hari Harsha (Super Admin)</h3>
-                    <p>Operator Code: <strong>@harsha_admin</strong></p>
-                    <p>Assigned Role: <span className="badge-role gold">SUPER_ADMIN</span></p>
-                    <p className="last-login">Last authenticated: Today at 14:12 (OTP Verified via Email)</p>
+              <SpotlightCard className="dash-control-card-spotlight" spotlightColor="rgba(212, 168, 67, 0.12)">
+                <div className="dash-control-card">
+                  <span className="dash-control-title">Active Operator Profile</span>
+                  <div className="admin-profile-cockpit">
+                    <div className="admin-avatar-lg">HH</div>
+                    <div className="admin-profile-details">
+                      <h3>Hari Harsha (Super Admin)</h3>
+                      <p>Operator Code: <strong>@harsha_admin</strong></p>
+                      <p>Assigned Role: <span className="badge-role gold">SUPER_ADMIN</span></p>
+                      <p className="last-login">Last authenticated: Today at 14:12 (OTP Verified via Email)</p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </SpotlightCard>
 
-              <div className="dash-system-card">
-                <span className="dash-control-title">Infrastructure Health Observability</span>
-                <div className="system-status-grid">
-                  <div className="system-status-row">
-                    <span className="sys-label">Application Platform Layer</span>
-                    <span className="sys-value-badge healthy">✓ Online (12ms)</span>
-                  </div>
-                  <div className="system-status-row">
-                    <span className="sys-label">Cryptographic Ballot Database</span>
-                    <span className="sys-value-badge healthy">✓ Optimal (Pool: 48/50)</span>
-                  </div>
-                  <div className="system-status-row">
-                    <span className="sys-label">Live Audit Trace Logger</span>
-                    <span className="sys-value-badge healthy">✓ Streaming</span>
-                  </div>
-                  <div className="system-status-row">
-                    <span className="sys-label">Two-Factor OTP Relay Service</span>
-                    <span className="sys-value-badge degraded"><IconAlertTriangle size={16} /> High Latency</span>
+              <SpotlightCard className="dash-system-card-spotlight" spotlightColor="rgba(74, 157, 143, 0.15)">
+                <div className="dash-system-card">
+                  <span className="dash-control-title">Infrastructure Health Observability</span>
+                  <div className="system-status-grid">
+                    <div className="system-status-row">
+                      <span className="sys-label">Application Platform Layer</span>
+                      <span className="sys-value-badge healthy">✓ Online (12ms)</span>
+                    </div>
+                    <div className="system-status-row">
+                      <span className="sys-label">Cryptographic Ballot Database</span>
+                      <span className="sys-value-badge healthy">✓ Optimal (Pool: 48/50)</span>
+                    </div>
+                    <div className="system-status-row">
+                      <span className="sys-label">Live Audit Trace Logger</span>
+                      <span className="sys-value-badge healthy">✓ Streaming</span>
+                    </div>
+                    <div className="system-status-row">
+                      <span className="sys-label">Two-Factor OTP Relay Service</span>
+                      <span className="sys-value-badge degraded"><IconAlertTriangle size={16} /> High Latency</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </SpotlightCard>
             </div>
 
           </div>

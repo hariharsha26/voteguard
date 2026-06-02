@@ -33,6 +33,26 @@
   overflow: hidden;
 }
 
+[data-theme="light"] .dashboard-page {
+  --bg: #f5f5f8;
+  --bg2: #ffffff;
+  --bg3: #efeff4;
+  --glass: rgba(0, 0, 0, 0.015);
+  --glass-hover: rgba(0, 0, 0, 0.03);
+  --border: rgba(0, 0, 0, 0.08);
+  --border-active: rgba(169, 126, 40, 0.4);
+  --text: #18181b;
+  --text2: #555562;
+  --text3: #8e8e9c;
+  
+  --gold: #a97e28;
+  --gold-bg: rgba(169, 126, 40, 0.08);
+  --teal: #387b70;
+  --teal-bg: rgba(56, 123, 112, 0.08);
+  --red: #b93a3a;
+  --red-bg: rgba(185, 58, 58, 0.08);
+}
+
 /* ── SIDEBAR ── */
 .dashboard-sidebar {
   width: 280px;
@@ -414,19 +434,27 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
 }
-.dash-stat-card {
-  background: var(--glass);
-  border: 1px solid var(--border);
+.dash-stat-card-spotlight {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   border-radius: 12px;
+  border: 1px solid var(--border);
+  background-color: var(--bg2);
+  transition: border-color 0.3s ease, background-color 0.3s ease;
+}
+.dash-stat-card-spotlight:hover {
+  border-color: var(--border-active);
+}
+.dash-stat-card {
+  background: transparent;
+  border: none;
   padding: 24px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: border-color 0.2s ease, background 0.2s ease;
-}
-.dash-stat-card:hover {
-  border-color: var(--border-active);
-  background: var(--glass-hover);
+  width: 100%;
+  height: 100%;
 }
 .dash-stat-label {
   font-size: 11px;
@@ -553,14 +581,24 @@
 }
 
 /* Chart widget */
-.dash-chart-card {
-  background: var(--glass);
-  border: 1px solid var(--border);
+.dash-chart-card-spotlight {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   border-radius: 12px;
+  border: 1px solid var(--border);
+  background-color: var(--bg2);
+  transition: border-color 0.3s ease, background-color 0.3s ease;
+}
+.dash-chart-card {
+  background: transparent;
+  border: none;
   padding: 24px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  width: 100%;
+  height: 100%;
 }
 .dash-chart-header {
   display: flex;
@@ -577,13 +615,22 @@
 }
 
 /* Terminal logs widget */
-.dash-terminal-card {
-  background: #08080c;
-  border: 1px solid var(--border);
+.dash-terminal-card-spotlight {
+  display: flex;
+  flex-direction: column;
   border-radius: 12px;
+  border: 1px solid var(--border);
+  background-color: #08080c !important; /* Keep the terminal pure dark black */
+  transition: border-color 0.3s ease;
+}
+.dash-terminal-card {
+  background: transparent;
+  border: none;
   padding: 24px;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  height: 100%;
 }
 .dash-terminal-header {
   display: flex;
@@ -655,11 +702,18 @@
 }
 
 /* Control Tiles / Active Profile Cockpit */
-.dash-control-card {
-  background: var(--glass);
-  border: 1px solid var(--border);
+.dash-control-card-spotlight {
   border-radius: 12px;
+  border: 1px solid var(--border);
+  background-color: var(--bg2);
+  transition: border-color 0.3s ease, background-color 0.3s ease;
+}
+.dash-control-card {
+  background: transparent;
+  border: none;
   padding: 24px;
+  width: 100%;
+  height: 100%;
 }
 .dash-control-title {
   font-size: 11px;
@@ -720,11 +774,18 @@
 }
 
 /* System health status */
-.dash-system-card {
-  background: var(--glass);
-  border: 1px solid var(--border);
+.dash-system-card-spotlight {
   border-radius: 12px;
+  border: 1px solid var(--border);
+  background-color: var(--bg2);
+  transition: border-color 0.3s ease, background-color 0.3s ease;
+}
+.dash-system-card {
+  background: transparent;
+  border: none;
   padding: 24px;
+  width: 100%;
+  height: 100%;
 }
 .system-status-grid {
   display: flex;
@@ -1448,7 +1509,6 @@ table.dash-table tr:last-child td { border-bottom: none; }
   margin-top: 4px;
 }
 
-<<<<<<< HEAD
 /* About me biography */
 .bio-textarea {
   background: rgba(0,0,0,0.2);
@@ -2176,5 +2236,4 @@ table.dash-table tr:last-child td { border-bottom: none; }
 [data-theme="light"] .control-tile {
   background: rgba(255,255,255,0.84);
   box-shadow: var(--shadow-tight);
->>>>>>> codex/respond-to-greeting
 }
