@@ -802,16 +802,6 @@
   box-shadow: 0 -8px 20px rgba(105,241,196,0.16);
 }
 
-.hero-layer-asset {
-  position: absolute;
-  right: -24px;
-  bottom: -72px;
-  width: 176px;
-  z-index: 3;
-  opacity: 0.78;
-  filter: drop-shadow(0 22px 32px rgba(0,0,0,0.4)) hue-rotate(118deg) saturate(0.8);
-  animation: layerFloat 5.5s ease-in-out infinite;
-}
 
 .hero-badge {
   border-radius: 8px;
@@ -898,10 +888,6 @@
   to { background-position: 0 520px; }
 }
 
-@keyframes layerFloat {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(-8px, -10px, 0); }
-}
 
 [data-theme="light"] .landing-page,
 [data-theme="light"] #problems,
@@ -933,9 +919,6 @@
   box-shadow: var(--shadow-tight);
 }
 
-[data-theme="light"] .hero-layer-asset {
-  filter: drop-shadow(0 18px 28px rgba(35,47,67,0.16)) hue-rotate(118deg) saturate(0.8);
-}
 
 @media (max-width: 1180px) {
   #hero {

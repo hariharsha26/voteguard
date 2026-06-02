@@ -5,7 +5,6 @@ import useRevealOnScroll from '../hooks/useRevealOnScroll';
 import ThemeToggle from '../components/ThemeToggle';
 import DecryptedText from '../components/ReactBits/DecryptedText';
 import CountUpNumber from '../components/ReactBits/CountUpNumber';
-import heroLayer from '../assets/hero.png';
 import '../styles/landing.css';
 import { IconBolt, IconBuildingBank, IconSchool, IconBox, IconClipboardList, IconBuilding, IconWorld, IconCopyright } from '@tabler/icons-react';
 
@@ -160,7 +159,6 @@ export default function Landing() {
                 </div>
               </div>
             </div>
-            <img className="hero-layer-asset" src={heroLayer} alt="" aria-hidden="true" />
             <div className="hero-badge">
               <div className="badge-dot"></div>
               <div className="badge-text"><strong>3 elections</strong> running live right now</div>
