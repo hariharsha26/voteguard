@@ -15,6 +15,7 @@ export default function Landing() {
   const navRef = useRef(null);
   const barsRef = useRef(null);
   const navigate = useNavigate();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLoaderComplete = useCallback(() => {
     setLoaderDone(true);
@@ -76,10 +77,34 @@ export default function Landing() {
             <a href="#cta" className="nav-cta" onClick={(e) => { e.preventDefault(); scrollTo('cta'); }}>Get Started</a>
           </div>
 
-          <div className="nav-mobile"><button>Menu</button></div>
+          <div className="nav-mobile">
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? '✕' : 'Menu'}
+            </button>
+          </div>
         </nav>
 
-        {/* S1 HERO */}
+        {/* MOBILE NAV OVERLAY */}
+        {mobileMenuOpen && (
+          <div className="mobile-nav-overlay" onClick={() => setMobileMenuOpen(false)}>
+            <div className="mobile-nav-content" onClick={(e) => e.stopPropagation()}>
+              <ul className="mobile-nav-links">
+                <li><a href="#problems" onClick={(e) => { e.preventDefault(); scrollTo('problems'); setMobileMenuOpen(false); }}>Problem</a></li>
+                <li><a href="#features" onClick={(e) => { e.preventDefault(); scrollTo('features'); setMobileMenuOpen(false); }}>Features</a></li>
+                <li><a href="#security" onClick={(e) => { e.preventDefault(); scrollTo('security'); setMobileMenuOpen(false); }}>Security</a></li>
+                <li><a href="#comparison" onClick={(e) => { e.preventDefault(); scrollTo('comparison'); setMobileMenuOpen(false); }}>Why Us</a></li>
+              </ul>
+              <a href="#cta" className="nav-cta mobile-nav-cta" onClick={(e) => { e.preventDefault(); scrollTo('cta'); setMobileMenuOpen(false); }}>Get Started</a>
+            </div>
+          </div>
+        )}
+
+        <main className="landing-main">
+          {/* S1 HERO */}
         <section id="hero">
           <div className="hero-text reveal">
             <div className="eyebrow">
@@ -532,6 +557,7 @@ export default function Landing() {
             </div>
           </div>
         </section>
+        </main>
 
         {/* FOOTER */}
         <footer className="landing-footer">

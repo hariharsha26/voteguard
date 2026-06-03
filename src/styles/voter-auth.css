@@ -423,3 +423,45 @@
 [data-theme="light"] .voter-auth-page .auth-card {
   background: rgba(255,255,255,0.84);
 }
+
+/* Secure loading overlays & spinner */
+.secure-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top: 3px solid var(--teal);
+  border-radius: 50%;
+  animation: secureSpin 1s linear infinite;
+  box-shadow: 0 0 15px rgba(105, 241, 196, 0.2);
+}
+
+.secure-success-checkmark {
+  display: inline-block;
+  animation: checkmarkPulse 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes secureSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes checkmarkPulse {
+  0% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(105, 241, 196, 0.3)); }
+  100% { transform: scale(1.05); filter: drop-shadow(0 0 15px rgba(105, 241, 196, 0.6)); }
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@media (max-width: 480px) {
+  .voter-auth-page .auth-card {
+    padding: 24px 16px;
+    border-radius: 12px;
+  }
+}

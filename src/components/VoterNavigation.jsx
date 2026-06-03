@@ -10,10 +10,15 @@ export default function VoterNavigation({
   notifications,
   onMarkAllRead,
   onClearNotification,
-  onLogout
+  onLogout,
+  isLargeText = false,
+  setIsLargeText = () => {},
+  isHighContrast = false,
+  setIsHighContrast = () => {}
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [accessibilityOpen, setAccessibilityOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   // Monitor scroll for sticky blur transitions
@@ -83,6 +88,7 @@ export default function VoterNavigation({
     setActiveTab(tabId);
     setDrawerOpen(false);
     setNotificationsOpen(false);
+    setAccessibilityOpen(false);
   };
 
   return (
@@ -116,6 +122,95 @@ export default function VoterNavigation({
           {/* Right Profile / Controls */}
           <div className="nav-controls-right">
             <ThemeToggle />
+
+            {/* Accessibility Panel */}
+            <div className="accessibility-panel-container" style={{ position: 'relative' }}>
+              <button
+                className={`nav-btn-icon ${accessibilityOpen ? 'active' : ''}`}
+                onClick={() => {
+                  setAccessibilityOpen(!accessibilityOpen);
+                  setNotificationsOpen(false);
+                  setDrawerOpen(false);
+                }}
+                title="Accessibility options"
+                aria-label="Accessibility options"
+                style={{ position: 'relative' }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '18px', height: '18px' }}>
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" />
+                  <path d="M8 11h8" />
+                  <path d="M12 11v8" />
+                  <path d="M9 16l3-3 3 3" />
+                </svg>
+              </button>
+              
+              {accessibilityOpen && (
+                <div className="accessibility-dropdown-card" style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '12px',
+                  width: '280px',
+                  background: 'var(--bg2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  boxShadow: 'var(--shadow-tight)',
+                  zIndex: 20,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px',
+                  textAlign: 'left'
+                }}>
+                  <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '4px' }}>
+                    <h3 style={{ margin: 0, fontSize: '13px', fontWeight: '750', color: 'var(--text)', fontFamily: 'var(--font-body)' }}>Accessibility Settings</h3>
+                    <span style={{ fontSize: '10px', color: 'var(--text3)' }}>Platform accessibility options</span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong style={{ fontSize: '12px', color: 'var(--text)', display: 'block' }}>Large Text Mode</strong>
+                      <span style={{ fontSize: '10px', color: 'var(--text3)' }}>Scales up system typography</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`theme-toggle-switch ${isLargeText ? 'active' : ''}`}
+                      onClick={() => setIsLargeText(!isLargeText)}
+                      aria-label="Toggle large text mode"
+                      style={{ flexShrink: 0 }}
+                    >
+                      <span className="theme-toggle-knob"></span>
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong style={{ fontSize: '12px', color: 'var(--text)', display: 'block' }}>High Contrast Mode</strong>
+                      <span style={{ fontSize: '10px', color: 'var(--text3)' }}>Enhances text &amp; border visibility</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`theme-toggle-switch ${isHighContrast ? 'active' : ''}`}
+                      onClick={() => setIsHighContrast(!isHighContrast)}
+                      aria-label="Toggle high contrast mode"
+                      style={{ flexShrink: 0 }}
+                    >
+                      <span className="theme-toggle-knob"></span>
+                    </button>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '10px', color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ color: 'var(--teal)', fontWeight: '700' }}>✓</span> Keyboard Accessible (Tab)
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ color: 'var(--teal)', fontWeight: '700' }}>✓</span> ARIA Screen Reader Labels
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Notification Bell */}
             <div className="notification-bell-container">
@@ -267,12 +362,13 @@ export default function VoterNavigation({
       </header>
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
-      <nav className="voter-bottom-nav">
-        {navItems.map((item) => (
+      <nav className="voter-bottom-nav" role="navigation" aria-label="Main mobile navigation">
+        {navItems.filter(item => item.id !== 'Profile' && item.id !== 'Help').map((item) => (
           <button
             key={item.id}
             className={`bottom-nav-item ${activeTab === item.id ? 'active' : ''}`}
             onClick={() => handleTabSelect(item.id)}
+            aria-label={item.label}
           >
             <div className="bottom-nav-icon-wrap">
               {item.icon}
@@ -286,6 +382,7 @@ export default function VoterNavigation({
         <button
           className={`bottom-nav-item ${activeTab === 'Profile' ? 'active' : ''}`}
           onClick={() => handleTabSelect('Profile')}
+          aria-label="Profile"
         >
           <div className="bottom-nav-icon-wrap">
             <svg viewBox="0 0 24 24" className="nav-icon-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -306,7 +403,7 @@ export default function VoterNavigation({
             <LogoMark size={10} />
             <span>VoteGuard Platform</span>
           </div>
-          <button className="drawer-close-btn" onClick={() => setDrawerOpen(false)}>
+          <button className="drawer-close-btn" onClick={() => setDrawerOpen(false)} aria-label="Close navigation drawer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="drawer-close-svg">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />

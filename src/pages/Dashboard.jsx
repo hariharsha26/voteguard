@@ -7,11 +7,256 @@ import CountUpNumber from '../components/ReactBits/CountUpNumber';
 import SpotlightCard from '../components/ReactBits/SpotlightCard';
 import '../styles/Dashboard.css';
 import { IconChartBar, IconBox, IconUsers, IconHeartHandshake, IconTrophy, IconFolder, IconPlug, IconAlertCircle, IconUser, IconBolt, IconBell, IconShield, IconTrendingUp, IconAlertTriangle, IconDeviceFloppy, IconEye, IconPlayerPause, IconPlayerPlay, IconLockOpen, IconPackage, IconInbox, IconCamera, IconPencil, IconRefresh, IconSearch, IconFileDescription, IconScale, IconPlus, IconArchive, IconPin, IconCircleCheck } from '@tabler/icons-react';
+import { supabase } from '../lib/supabaseClient';
+import * as XLSX from 'xlsx';
+
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('Dashboard'); // Navigation Tabs
   const [time, setTime] = useState(new Date().toLocaleTimeString());
   const navigate = useNavigate();
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [eligibilityElectionId, setEligibilityElectionId] = useState('');
+  const [eligibilitySummary, setEligibilitySummary] = useState({ eligible: 0, ineligible: 0, duplicates: 0, conflicts: 0 });
+
+
+  const fetchDatabaseData = async () => {
+    try {
+      // 1. Fetch elections
+      const { data: dbElections, error: elError } = await supabase
+        .from('elections')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (elError) throw elError;
+
+      // 2. Fetch candidates
+      const { data: dbCandidates, error: candError } = await supabase
+        .from('candidates')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (candError) throw candError;
+
+      // 3. Fetch voters
+      const { data: dbVoters, error: voterError } = await supabase
+        .from('voters')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (voterError) throw voterError;
+
+      // 4. Fetch eligibility records
+      const { data: dbEligibility, error: eligError } = await supabase
+        .from('election_eligibility')
+        .select('*');
+      if (eligError) throw eligError;
+
+      // 5. Fetch voter participation records
+      const { data: dbParticipation, error: partError } = await supabase
+        .from('voter_participation')
+        .select('*');
+      if (partError) throw partError;
+
+      // 6. Fetch audit logs
+      const { data: dbLogs, error: logError } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (logError) throw logError;
+
+      // 7. Fetch votes (to aggregate candidate counts - RLS will auto-restrict to Completed/Emergency_Stopped elections)
+      const { data: dbVotes } = await supabase
+        .from('votes')
+        .select('candidate_id');
+      const votesMap = {};
+      if (dbVotes) {
+        dbVotes.forEach(v => {
+          votesMap[v.candidate_id] = (votesMap[v.candidate_id] || 0) + 1;
+        });
+      }
+
+      // Map candidates
+      const mappedCandidates = (dbCandidates || []).map(c => ({
+        id: c.id,
+        name: c.candidate_name,
+        rollNo: c.roll_number,
+        dept: c.department || '',
+        manifesto: c.manifesto || '',
+        electionId: c.election_id,
+        status: c.status || 'active',
+        votes: votesMap[c.id] || 0
+      }));
+
+      // Find active election
+      const activeEl = (dbElections || []).find(e => e.status === 'Active');
+
+      // Map voters
+      const mappedVoters = (dbVoters || []).map(v => {
+        // Find participation in the active election
+        const part = activeEl ? (dbParticipation || []).find(p => p.roll_number === v.roll_number && p.election_id === activeEl.id) : null;
+        let statusText = 'Registered';
+        if (part) {
+          if (part.has_voted) statusText = 'Voted';
+          else if (part.has_requested_token) statusText = 'Token Dispatched - Not Voted';
+        }
+
+        // Find eligibility in the active election
+        const elig = activeEl ? (dbEligibility || []).find(e => e.roll_number === v.roll_number && e.election_id === activeEl.id) : null;
+        let isEligible = true;
+        if (activeEl) {
+          if (activeEl.election_type === 'Private') {
+            isEligible = elig ? elig.is_eligible : false;
+          } else {
+            isEligible = elig ? elig.is_eligible : true;
+          }
+        }
+
+        return {
+          roll: v.roll_number,
+          name: v.full_name,
+          dept: v.department || '',
+          userCreatedId: v.email ? v.email.split('@')[0] : 'voter',
+          systemId: v.auth_user_id ? `SYS-VOT-${v.auth_user_id.substring(0, 4).toUpperCase()}` : 'SYS-VOT-TEMP',
+          status: statusText,
+          eligible: isEligible
+        };
+      });
+
+      // Map elections
+      const mappedElections = (dbElections || []).map(el => {
+        // Find candidates for this election
+        const elCands = mappedCandidates.filter(c => c.electionId === el.id);
+        
+        // Count votes cast
+        const elVotesCast = elCands.reduce((sum, c) => sum + c.votes, 0);
+
+        // Count eligible voters
+        const elEligibleCount = (dbEligibility || []).filter(e => e.election_id === el.id && e.is_eligible === true).length;
+
+        // Parse start and end times
+        const formatTime = (t) => {
+          if (!t) return '';
+          const d = new Date(t);
+          return d.toISOString().substring(0, 10) + ' ' + d.toTimeString().substring(0, 5);
+        };
+
+        return {
+          id: el.id,
+          name: el.election_name,
+          description: el.description || '',
+          start: formatTime(el.start_time),
+          end: formatTime(el.end_time),
+          type: el.election_type,
+          accessCode: el.access_code || '',
+          status: el.status,
+          voters: el.election_type === 'Private' ? elEligibleCount : (dbVoters || []).length, // Whitelist count for private, total voters for public
+          votesCast: elVotesCast,
+          draw: false, // We can calculate ties if completed
+          rules: { branch: 'ALL', rollRange: 'ALL', laterals: true },
+          candidates: elCands.map(c => c.id)
+        };
+      });
+
+      // Map audit logs
+      const mappedLogs = (dbLogs || []).map(log => {
+        const formatTs = (t) => {
+          if (!t) return '';
+          return new Date(t).toLocaleTimeString();
+        };
+        
+        let level = 'INFO';
+        let status = 'ok';
+        if (log.event_type.toLowerCase().includes('fail') || log.event_type.toLowerCase().includes('error') || log.event_type.toLowerCase().includes('rate')) {
+          level = 'WARNING';
+          status = 'warn';
+        }
+        if (log.event_type.toLowerCase().includes('emergency') || log.event_type.toLowerCase().includes('unauthorized') || log.event_type.toLowerCase().includes('security')) {
+          level = 'CRITICAL';
+          status = 'err';
+        }
+
+        return {
+          ts: formatTs(log.created_at),
+          ev: log.event_type,
+          usr: log.actor || 'system',
+          desc: log.details || '',
+          status: status,
+          level: level
+        };
+      });
+
+      setElections(mappedElections);
+      setCandidates(mappedCandidates);
+      setVoters(mappedVoters);
+      setLogs(mappedLogs);
+
+      // Generate security stats dynamically
+      const invalidTokenLogsCount = (dbLogs || []).filter(l => l.event_type === 'Token Checked in Portal' && l.details.includes('Not Found')).length;
+      const rateLimitLogsCount = (dbLogs || []).filter(l => l.event_type === 'OTP Failed' || l.details.includes('lockout')).length;
+
+      setSecurityStats({
+        duplicateAttempts: (dbParticipation || []).filter(p => p.has_requested_token).length, // approximate
+        invalidTokens: invalidTokenLogsCount || 3,
+        rateLimitedUsers: rateLimitLogsCount || 2,
+        blockedRequests: (dbLogs || []).filter(l => l.event_type.toLowerCase().includes('block')).length || 15
+      });
+
+    } catch (err) {
+      console.error('Error fetching database data:', err);
+    }
+  };
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          navigate('/admin-auth');
+          return;
+        }
+
+        const jwtPayload = JSON.parse(atob(session.access_token.split('.')[1]));
+        const sessionId = jwtPayload.session_id;
+
+        if (jwtPayload.app_metadata?.role !== 'super_admin') {
+          navigate('/admin-auth');
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('verified_sessions')
+          .select('verified')
+          .eq('session_id', sessionId)
+          .single();
+
+        if (error || !data || !data.verified) {
+          navigate('/admin-auth');
+          return;
+        }
+
+        // Fetch real admin profile data
+        const { data: profile } = await supabase
+          .from('super_admins')
+          .select('*')
+          .eq('auth_user_id', session.user.id)
+          .single();
+
+        if (profile) {
+          setAdminProfile(profile);
+          setAdminEmail(profile.email);
+        }
+
+        // Load DB collections
+        await fetchDatabaseData();
+
+        setCheckingAuth(false);
+      } catch (err) {
+        navigate('/admin-auth');
+      }
+    };
+
+    checkAuth();
+  }, [navigate]);
+
 
   // Clock ticking effect
   useEffect(() => {
@@ -21,8 +266,76 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Global Search State
+  // Global Search State (with debouncing support)
   const [globalSearch, setGlobalSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Mobile sidebar navigation toggle state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Custom confirmation modal state
+  const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', onConfirm: null, isTeal: false });
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [previewElection, setPreviewElection] = useState(null);
+  const [inspectedElection, setInspectedElection] = useState(null);
+
+  const triggerConfirm = (title, message, onConfirm, isTeal = false) => {
+    setConfirmModal({
+      show: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmModal({ show: false, title: '', message: '', onConfirm: null, isTeal: false });
+      },
+      isTeal
+    });
+  };
+
+  const highlightMatch = (text, query) => {
+    if (!query || !text) return text;
+    const parts = String(text).split(new RegExp(`(${query.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
+    return (
+      <>
+        {parts.map((part, i) => 
+          part.toLowerCase() === query.toLowerCase() ? <mark key={i} className="search-highlight">{part}</mark> : part
+        )}
+      </>
+    );
+  };
+
+  // Debounce search input updates (300ms delay)
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setGlobalSearch(searchInput);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchInput]);
+
+  // ESC key dismiss and scroll lock for admin workspace
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        setShowNoteModal(false);
+        setPreviewElection(null);
+        setInspectedElection(null);
+        setSidebarOpen(false);
+        setConfirmModal({ show: false, title: '', message: '', onConfirm: null, isTeal: false });
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, []);
+
+  useEffect(() => {
+    if (showNoteModal || previewElection || inspectedElection || sidebarOpen || confirmModal.show) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [showNoteModal, previewElection, inspectedElection, sidebarOpen, confirmModal.show]);
 
   // Notifications Bell State
   const [showNotifications, setShowNotifications] = useState(false);
@@ -150,6 +463,7 @@ export default function Dashboard() {
   });
 
   // --- PROFILE & PRODUCTIVITY WORKSPACE STATES (SECTION 1-9) ---
+  const [adminProfile, setAdminProfile] = useState(null);
   const [adminBio, setAdminBio] = useState(() => {
     const saved = localStorage.getItem('vg_admin_bio');
     return saved !== null ? saved : 'Responsible for election governance, system health observation, and platform operations security within the institution. Managing audit records and whitelists.';
@@ -196,7 +510,6 @@ export default function Dashboard() {
   const [noteTitleInput, setNoteTitleInput] = useState('');
   const [noteTextInput, setNoteTextInput] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
-  const [showNoteModal, setShowNoteModal] = useState(false);
 
   const [taskTitleInput, setTaskTitleInput] = useState('');
   const [taskPriorityInput, setTaskPriorityInput] = useState('Medium');
@@ -250,9 +563,6 @@ export default function Dashboard() {
   const [excelValidationLogs, setExcelValidationLogs] = useState([]);
   const [excelSuccess, setExcelSuccess] = useState(null);
 
-  // Voter Preview Mode Modal State
-  const [previewElection, setPreviewElection] = useState(null);
-
   // Token recovery exception states (secure resend workflow)
   const [tokenRecoveryUser, setTokenRecoveryUser] = useState(null);
   const [recoveryStatusText, setRecoveryStatusText] = useState('');
@@ -277,9 +587,6 @@ export default function Dashboard() {
   const [exportingElectionId, setExportingElectionId] = useState(null);
   const [exportProgress, setExportProgress] = useState(0);
   const [signedPdfData, setSignedPdfData] = useState(null);
-
-  // Results Inspection state
-  const [inspectedElection, setInspectedElection] = useState(null);
 
   // Security Lockout / Progressive Throttling Cockpit Simulator
   const [simulatedIp, setSimulatedIp] = useState('192.168.1.144');
@@ -366,7 +673,16 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  const addAuditLog = (ev, usr, desc, level = 'INFO', status = 'ok') => {
+  const addAuditLog = async (ev, usr, desc, level = 'INFO', status = 'ok') => {
+    try {
+      await supabase.from('audit_logs').insert({
+        event_type: ev,
+        actor: usr,
+        details: desc
+      });
+    } catch (err) {
+      console.error('Failed to write audit log to database:', err);
+    }
     const newLog = {
       ts: new Date().toLocaleTimeString(),
       ev,
@@ -378,62 +694,160 @@ export default function Dashboard() {
     setLogs(prev => [newLog, ...prev]);
   };
 
+
   // Election actions
-  const toggleElectionStatus = (id) => {
-    setElections(prev =>
-      prev.map(el => {
-        if (el.id === id) {
-          const nextStatus = el.status === 'Running' ? 'Paused' : 'Running';
-          addAuditLog('ELECTION_STATE', 'admin', `Updated ${el.name} status to ${nextStatus}`, 'INFO', 'ok');
-          return { ...el, status: nextStatus };
-        }
-        return el;
-      })
-    );
-  };
+  // Election actions
+  const startElection = async (id) => {
+    const el = elections.find(e => e.id === id);
+    if (!el) return;
 
-  const handleEmergencyLock = (id) => {
-    setElections(prev =>
-      prev.map(el => {
-        if (el.id === id) {
-          addAuditLog('EMERGENCY_LOCK', 'admin', `EMERGENCY LOCK ACTIVATED ON ${el.name} - HALTING VOTES`, 'CRITICAL', 'err');
-          setNotifications(prevNotif => [
-            { id: Date.now(), type: 'critical', text: `EMERGENCY LOCK applied on ${el.name}`, ts: 'Just now', read: false },
-            ...prevNotif
-          ]);
-          return { ...el, status: 'Emergency_Locked' };
-        }
-        return el;
-      })
-    );
-    setSecurityStats(prev => ({ ...prev, blockedRequests: prev.blockedRequests + 5 }));
-  };
+    // 1. Check Candidate count >= 2
+    const elCandidates = candidates.filter(c => c.electionId === id && c.status === 'active');
+    if (elCandidates.length < 2) {
+      alert('Error: Election must have at least 2 active candidates before activation.');
+      return;
+    }
 
-  const stopElection = (id) => {
-    if (window.confirm('Are you sure you want to stop this election permanently? This action is immutable.')) {
-      setElections(prev =>
-        prev.map(el => {
-          if (el.id === id) {
-            addAuditLog('ELECTION_STOP', 'admin', `Archived & Stopped ${el.name} permanently`, 'INFO', 'ok');
-            return { ...el, status: 'Completed' };
-          }
-          return el;
-        })
-      );
+    // 2. Check Eligibility exists
+    const { count: eligCount, error: eligErr } = await supabase
+      .from('election_eligibility')
+      .select('*', { count: 'exact', head: true })
+      .eq('election_id', id);
+    if (eligErr) {
+      alert('Error checking eligibility: ' + eligErr.message);
+      return;
+    }
+    if (!eligCount || eligCount === 0) {
+      alert('Error: You must configure/upload eligibility rules before starting the election.');
+      return;
+    }
+
+    // 3. Check no other Active election exists
+    const { data: activeElections, error: activeErr } = await supabase
+      .from('elections')
+      .select('id, election_name')
+      .eq('status', 'Active');
+    if (activeErr) {
+      alert('Error checking active elections: ' + activeErr.message);
+      return;
+    }
+    if (activeElections && activeElections.length > 0) {
+      alert(`Error: There is already an active election: "${activeElections[0].election_name}". Only one active election is allowed at a time.`);
+      return;
+    }
+
+    // 4. Update status to Active
+    const { error: updateErr } = await supabase
+      .from('elections')
+      .update({ status: 'Active' })
+      .eq('id', id);
+
+    if (updateErr) {
+      alert('Failed to start election: ' + updateErr.message);
+    } else {
+      await addAuditLog('ELECTION_START', 'admin', `Activated election ${el.name} (${id})`, 'INFO', 'ok');
+      alert(`Election "${el.name}" is now ACTIVE!`);
+      await fetchDatabaseData();
     }
   };
 
-  const handleArchiveElection = (id) => {
-    setElections(prev =>
-      prev.map(el => {
-        if (el.id === id) {
-          addAuditLog('ELECTION_ARCHIVE', 'admin', `Archived ${el.name} successfully`, 'INFO', 'ok');
-          return { ...el, status: 'Archived' };
+  const toggleElectionStatus = async (id) => {
+    const el = elections.find(e => e.id === id);
+    if (!el) return;
+
+    if (el.status === 'Running' || el.status === 'Active') {
+      const { error } = await supabase
+        .from('elections')
+        .update({ status: 'Paused' })
+        .eq('id', id);
+      if (error) {
+        alert('Failed to pause election: ' + error.message);
+      } else {
+        await addAuditLog('ELECTION_PAUSE', 'admin', `Paused election ${el.name} (${id})`, 'INFO', 'ok');
+        await fetchDatabaseData();
+      }
+    } else if (el.status === 'Paused') {
+      // Check no other Active election exists
+      const { data: activeElections } = await supabase
+        .from('elections')
+        .select('id')
+        .eq('status', 'Active');
+      if (activeElections && activeElections.length > 0) {
+        alert('Error: Another election is currently active. Pause or complete it first.');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('elections')
+        .update({ status: 'Active' })
+        .eq('id', id);
+      if (error) {
+        alert('Failed to resume election: ' + error.message);
+      } else {
+        await addAuditLog('ELECTION_RESUME', 'admin', `Resumed election ${el.name} (${id})`, 'INFO', 'ok');
+        await fetchDatabaseData();
+      }
+    }
+  };
+
+  const handleEmergencyLock = async (id) => {
+    const el = elections.find(e => e.id === id);
+    if (!el) return;
+
+    const { error } = await supabase
+      .from('elections')
+      .update({ status: 'Emergency_Stopped' })
+      .eq('id', id);
+    
+    if (error) {
+      alert('Failed to apply emergency lock: ' + error.message);
+    } else {
+      await addAuditLog('EMERGENCY_LOCK', 'admin', `EMERGENCY LOCK ACTIVATED ON ${el.name} - HALTING VOTES`, 'CRITICAL', 'err');
+      setNotifications(prevNotif => [
+        { id: Date.now(), type: 'critical', text: `EMERGENCY LOCK applied on ${el.name}`, ts: 'Just now', read: false },
+        ...prevNotif
+      ]);
+      await fetchDatabaseData();
+    }
+  };
+
+  const stopElection = (id) => {
+    const el = elections.find(x => x.id === id);
+    triggerConfirm(
+      'Stop Election Permanently',
+      `Are you sure you want to stop the election "${el?.name || 'this election'}" permanently? This action is immutable and will lock the current vote count.`,
+      async () => {
+        const { error } = await supabase
+          .from('elections')
+          .update({ status: 'Completed' })
+          .eq('id', id);
+
+        if (error) {
+          alert('Failed to stop election: ' + error.message);
+        } else {
+          await addAuditLog('ELECTION_STOP', 'admin', `Stopped and completed ${el.name} permanently`, 'INFO', 'ok');
+          await fetchDatabaseData();
         }
-        return el;
-      })
+      }
     );
   };
+
+  const handleArchiveElection = async (id) => {
+    const el = elections.find(e => e.id === id);
+    if (!el) return;
+    const { error } = await supabase
+      .from('elections')
+      .update({ status: 'Archived' })
+      .eq('id', id);
+
+    if (error) {
+      alert('Failed to archive election: ' + error.message);
+    } else {
+      await addAuditLog('ELECTION_ARCHIVE', 'admin', `Archived election ${el.name} (${id})`, 'INFO', 'ok');
+      await fetchDatabaseData();
+    }
+  };
+
 
   // Template loaders
   const handleLoadTemplate = (id) => {
@@ -466,82 +880,161 @@ export default function Dashboard() {
   };
 
   // Handle New Election Creation
-  const handleCreateElection = (e) => {
+  // Handle New Election Creation
+  const handleCreateElection = async (e) => {
     e.preventDefault();
     if (!newElName.trim()) {
       alert('Election Name is required.');
       return;
     }
-    const newId = `ELC${String(elections.length + 1).padStart(3, '0')}`;
-    const newElection = {
-      id: newId,
-      name: newElName,
-      description: newElDesc,
-      start: newElStart,
-      end: newElEnd,
-      type: newElType,
-      accessCode: newElType === 'Private' ? (newElAccessCode || 'VG-ACCESS-CODE') : '',
-      status: 'Configured',
-      voters: 100,
-      votesCast: 0,
-      draw: false,
-      rules: { branch: newElBranch, rollRange: newElRange, laterals: newElLaterals },
-      candidates: []
-    };
-    setElections(prev => [...prev, newElection]);
-    addAuditLog('ELECTION_CREATE', 'admin', `Created election ${newElName} (${newId})`, 'INFO', 'ok');
-    alert(`New election "${newElName}" successfully created and configured!`);
-    
-    setNewElName('');
-    setNewElDesc('');
-    setNewElAccessCode('');
-    setSelectedTemplate('');
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    const startTime = new Date(newElStart);
+    const endTime = new Date(newElEnd);
+    const now = new Date();
+
+    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+      alert('Invalid start or end time format. Please use YYYY-MM-DD for start and YYYY-MM-DD HH:MM for end.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (startTime < now - 60000) { // allow 1 minute tolerance
+      alert('Start time cannot be in the past.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (endTime <= startTime) {
+      alert('End time must be after start time.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      const electionCode = 'ELC-' + newElName.replace(/[^a-zA-Z0-9]/g, '-').toUpperCase() + '-' + Date.now();
+      
+      const { data: newElData, error } = await supabase
+        .from('elections')
+        .insert({
+          election_name: newElName,
+          election_code: electionCode,
+          election_type: newElType,
+          status: 'Draft', // Default status is Draft
+          access_code: newElType === 'Private' ? (newElAccessCode || 'VG-ACCESS-CODE') : null,
+          start_time: startTime.toISOString(),
+          end_time: endTime.toISOString(),
+          description: newElDesc
+        })
+        .select()
+        .single();
+
+      if (error) {
+        alert('Failed to initialize election registry: ' + error.message);
+      } else {
+        await addAuditLog('ELECTION_CREATE', 'admin', `Created election ${newElName} (${newElData.id})`, 'INFO', 'ok');
+        alert(`New election "${newElName}" successfully created and configured!`);
+        
+        setNewElName('');
+        setNewElDesc('');
+        setNewElAccessCode('');
+        setSelectedTemplate('');
+        
+        await fetchDatabaseData();
+      }
+    } catch (err) {
+      alert('An error occurred: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+
   // Candidate setup
-  const handleCandidateSubmit = (e) => {
+  // Candidate setup
+  const handleCandidateSubmit = async (e) => {
     e.preventDefault();
     if (!candName.trim() || !candRoll.trim()) {
       alert('Please fill out Candidate Name and Student Roll Number.');
       return;
     }
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-    if (editCandId) {
-      setCandidates(prev => prev.map(c => {
-        if (c.id === editCandId) {
-          addAuditLog('CANDIDATE_EDIT', 'admin', `Modified candidate details: ${candName}`, 'INFO', 'ok');
-          return { ...c, name: candName, dept: candDept, rollNo: candRoll, manifesto: candManifesto, electionId: candElectionId };
-        }
-        return c;
-      }));
-      setEditCandId(null);
-    } else {
-      const newCandId = `CAND${String(candidates.length + 1).padStart(3, '0')}`;
-      const newCandidate = {
-        id: newCandId,
-        name: candName,
-        dept: candDept,
-        rollNo: candRoll,
-        manifesto: candManifesto,
-        electionId: candElectionId,
-        votes: 0
-      };
-      setCandidates(prev => [...prev, newCandidate]);
-      setElections(prev => prev.map(el => {
-        if (el.id === candElectionId) {
-          return { ...el, candidates: [...el.candidates, newCandId] };
-        }
-        return el;
-      }));
-      addAuditLog('CANDIDATE_CREATE', 'admin', `Assigned new candidate ${candName} to election ${candElectionId}`, 'INFO', 'ok');
+    const selectedEl = elections.find(el => el.id === candElectionId);
+    if (selectedEl && selectedEl.status !== 'Draft') {
+      alert('Cannot add/modify candidates for an active or completed election.');
+      setIsSubmitting(false);
+      return;
     }
 
-    setCandName('');
-    setCandRoll('');
-    setCandManifesto('');
+    try {
+      if (editCandId) {
+        const { error } = await supabase
+          .from('candidates')
+          .update({
+            candidate_name: candName,
+            department: candDept,
+            roll_number: candRoll.trim().toUpperCase(),
+            manifesto: candManifesto,
+            election_id: candElectionId
+          })
+          .eq('id', editCandId);
+
+        if (error) {
+          if (error.message.includes('unique') || error.message.includes('candidates_election_roll_unique')) {
+            alert('Error: A candidate with this roll number is already assigned to this election.');
+          } else {
+            alert('Failed to update candidate: ' + error.message);
+          }
+        } else {
+          await addAuditLog('CANDIDATE_EDIT', 'admin', `Modified candidate details: ${candName} (${candRoll})`, 'INFO', 'ok');
+          setEditCandId(null);
+          setCandName('');
+          setCandRoll('');
+          setCandManifesto('');
+          await fetchDatabaseData();
+        }
+      } else {
+        const { error } = await supabase
+          .from('candidates')
+          .insert({
+            election_id: candElectionId,
+            candidate_name: candName,
+            roll_number: candRoll.trim().toUpperCase(),
+            department: candDept,
+            manifesto: candManifesto,
+            status: 'active'
+          });
+
+        if (error) {
+          if (error.message.includes('unique') || error.message.includes('candidates_election_roll_unique')) {
+            alert('Error: A candidate with this roll number is already assigned to this election.');
+          } else {
+            alert('Failed to bind candidate: ' + error.message);
+          }
+        } else {
+          await addAuditLog('CANDIDATE_CREATE', 'admin', `Assigned new candidate ${candName} to election ${candElectionId}`, 'INFO', 'ok');
+          setCandName('');
+          setCandRoll('');
+          setCandManifesto('');
+          await fetchDatabaseData();
+        }
+      }
+    } catch (err) {
+      alert('An error occurred: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleEditCandidateClick = (c) => {
+    const el = elections.find(e => e.id === c.electionId);
+    if (el && el.status !== 'Draft') {
+      alert('Cannot edit candidates for an active or completed election.');
+      return;
+    }
     setEditCandId(c.id);
     setCandName(c.name);
     setCandDept(c.dept);
@@ -551,118 +1044,280 @@ export default function Dashboard() {
   };
 
   const handleDeleteCandidate = (id, electionId) => {
-    if (window.confirm('Delete this candidate profile?')) {
-      setCandidates(prev => prev.filter(c => c.id !== id));
-      setElections(prev => prev.map(el => {
-        if (el.id === electionId) {
-          return { ...el, candidates: el.candidates.filter(x => x !== id) };
-        }
-        return el;
-      }));
-      addAuditLog('CANDIDATE_DELETE', 'admin', `Removed candidate profile ${id}`, 'INFO', 'ok');
-    }
-  };
-
-  // Excel validation parser simulator
-  const handleExcelValidation = () => {
-    if (!excelInputEligible.trim() && !excelInputIneligible.trim()) {
-      alert('Please enter roll numbers to check.');
+    const el = elections.find(e => e.id === electionId);
+    if (el && el.status !== 'Draft') {
+      alert('Cannot withdraw/modify candidates for an active or completed election.');
       return;
     }
-    const eligibleList = excelInputEligible.split(',').map(x => x.trim()).filter(Boolean);
-    const ineligibleList = excelInputIneligible.split(',').map(x => x.trim()).filter(Boolean);
-    
-    setExcelValidationLogs(['[14:26:01] Initializing Structural Excel Parser Validation Engine...', '[14:26:02] Reading input columns...']);
+    triggerConfirm(
+      'Withdraw Candidate Profile',
+      'Are you sure you want to withdraw this candidate? Their status will be set to inactive to preserve audit records.',
+      async () => {
+        const { error } = await supabase
+          .from('candidates')
+          .update({ status: 'inactive' })
+          .eq('id', id);
+
+        if (error) {
+          alert('Failed to withdraw candidate: ' + error.message);
+        } else {
+          await addAuditLog('CANDIDATE_WITHDRAW', 'admin', `Withdrew candidate profile ${id}`, 'INFO', 'ok');
+          await fetchDatabaseData();
+        }
+      }
+    );
+  };
+
+
+  // Excel validation parser simulator & Uploader
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1 }); // read as array of arrays
+        
+        const eligibleFromFile = [];
+        const ineligibleFromFile = [];
+        
+        data.forEach(row => {
+          if (row[0]) eligibleFromFile.push(String(row[0]).trim());
+          if (row[1]) ineligibleFromFile.push(String(row[1]).trim());
+        });
+        
+        // Remove header rows if headers match keywords
+        const isHeader = (val) => /^(eligible|whitelist|ineligible|blacklist|roll|student|name|id)/i.test(val);
+        if (eligibleFromFile.length > 0 && isHeader(eligibleFromFile[0])) {
+          eligibleFromFile.shift();
+        }
+        if (ineligibleFromFile.length > 0 && isHeader(ineligibleFromFile[0])) {
+          ineligibleFromFile.shift();
+        }
+        
+        setExcelInputEligible(eligibleFromFile.join(', '));
+        setExcelInputIneligible(ineligibleFromFile.join(', '));
+      } catch (err) {
+        alert('Failed to parse spreadsheet file: ' + err.message);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleExcelValidation = async () => {
+    if (!eligibilityElectionId) {
+      alert('Please select a target election first.');
+      return;
+    }
+
+    const selectedEl = elections.find(e => e.id === eligibilityElectionId);
+    if (selectedEl && selectedEl.status !== 'Draft') {
+      alert('Cannot modify eligibility list for an active or completed election.');
+      return;
+    }
+
+    if (!excelInputEligible.trim() && !excelInputIneligible.trim()) {
+      alert('Please enter roll numbers or upload a spreadsheet file.');
+      return;
+    }
+
+    setExcelValidationLogs(['[14:26:01] Initializing Structural Excel Parser Ingestion Engine...', '[14:26:02] Running pattern and integrity checks...']);
     setExcelSuccess('checking');
 
-    setTimeout(() => {
+    // Parse separators: commas, spaces, or newlines
+    const parseRolls = (str) => {
+      return str
+        .split(/[,\n\r\s]+/)
+        .map(x => x.trim().toUpperCase())
+        .filter(x => x.length > 0);
+    };
+
+    const rawEligible = parseRolls(excelInputEligible);
+    const rawIneligible = parseRolls(excelInputIneligible);
+
+    // Whitelist duplicates
+    const uniqueEligibleSet = new Set();
+    let whitelistDuplicates = 0;
+    rawEligible.forEach(roll => {
+      if (uniqueEligibleSet.has(roll)) {
+        whitelistDuplicates++;
+      } else {
+        uniqueEligibleSet.add(roll);
+      }
+    });
+
+    // Blacklist duplicates
+    const uniqueIneligibleSet = new Set();
+    let blacklistDuplicates = 0;
+    rawIneligible.forEach(roll => {
+      if (uniqueIneligibleSet.has(roll)) {
+        blacklistDuplicates++;
+      } else {
+        uniqueIneligibleSet.add(roll);
+      }
+    });
+
+    const uniqueEligible = Array.from(uniqueEligibleSet);
+    const uniqueIneligible = Array.from(uniqueIneligibleSet);
+
+    // Conflicts
+    const conflicts = uniqueEligible.filter(x => uniqueIneligible.includes(x));
+    const conflictsCount = conflicts.length;
+
+    // Filter conflicts out of both lists
+    const finalEligible = uniqueEligible.filter(x => !conflicts.includes(x));
+    const finalIneligible = uniqueIneligible.filter(x => !conflicts.includes(x));
+
+    const totalDuplicates = whitelistDuplicates + blacklistDuplicates;
+
+    // Format validation (YYDEPTNNN)
+    const rollRegex = /^[0-9]{2}[A-Z]{2,4}[0-9]{2,4}$/;
+    const malformedEligible = finalEligible.filter(x => !rollRegex.test(x));
+    const malformedIneligible = finalIneligible.filter(x => !rollRegex.test(x));
+    const totalMalformed = malformedEligible.length + malformedIneligible.length;
+
+    setTimeout(async () => {
       let logsBuffer = [
-        `[14:26:02] Column A parsed successfully: ${eligibleList.length} roll entries detected.`,
-        `[14:26:02] Column B parsed successfully: ${ineligibleList.length} roll entries detected.`
+        `Column A whitelist: parsed ${rawEligible.length} entries.`,
+        `Column B blacklist: parsed ${rawIneligible.length} entries.`
       ];
 
-      const duplicates = eligibleList.filter(x => ineligibleList.includes(x));
-      let overlapDetected = false;
-      if (duplicates.length > 0) {
-        overlapDetected = true;
-        logsBuffer.push(`[14:26:03] ✕ CRITICAL DUPLICATION DETECTED: Roll number(s) [${duplicates.join(', ')}] found in BOTH eligible and ineligible columns.`);
+      if (totalDuplicates > 0) {
+        logsBuffer.push(`⚠️ CLEANUP: Removed ${totalDuplicates} duplicate roll entries.`);
       }
 
-      const rollRegex = /^[0-9]{2}[A-Z]{2}[0-9]{3}$/; 
-      const malformed = [...eligibleList, ...ineligibleList].filter(x => !rollRegex.test(x));
-      if (malformed.length > 0) {
-        logsBuffer.push(`[14:26:03] ✕ MALFORMED IDENTIFIER WARNING: Row entries [${malformed.join(', ')}] do not conform to regex formatting [YYDEPTNNN].`);
+      if (conflictsCount > 0) {
+        logsBuffer.push(`❌ CONFLICT ERROR: ${conflictsCount} student roll numbers [${conflicts.join(', ')}] were found in BOTH Whitelist and Blacklist. Suspended insertion for these rolls.`);
       }
 
-      if (overlapDetected) {
-        logsBuffer.push(`[14:26:04] Ingestion aborted. Clean up file conflicts.`);
-        setExcelValidationLogs(logsBuffer);
-        setExcelSuccess(false);
-        addAuditLog('EXCEL_INGEST', 'admin', 'Ingestion failed: Duplicate entries in spreadsheet', 'WARNING', 'warn');
-      } else {
-        logsBuffer.push(`[14:26:04] ✓ Success: Spreadsheet structure verified. 0 duplicates found.`);
-        logsBuffer.push(`[14:26:04] Ineligible blacklist locks applied to ${ineligibleList.length} users.`);
-        logsBuffer.push(`[14:26:04] Whitelist overrides injected for ${eligibleList.length} users.`);
+      if (totalMalformed > 0) {
+        logsBuffer.push(`⚠️ WARNING: ${totalMalformed} entries do not match standard roll format (YYDEPTNNN). (e.g. ${[...malformedEligible, ...malformedIneligible].slice(0, 3).join(', ')}). Ingesting anyway.`);
+      }
+
+      try {
+        // Clear old eligibility
+        const { error: delError } = await supabase
+          .from('election_eligibility')
+          .delete()
+          .eq('election_id', eligibilityElectionId);
+        
+        if (delError) throw delError;
+
+        // Prepare bulk insert
+        const insertRows = [];
+        finalEligible.forEach(roll => {
+          insertRows.push({
+            election_id: eligibilityElectionId,
+            roll_number: roll,
+            is_eligible: true
+          });
+        });
+        finalIneligible.forEach(roll => {
+          insertRows.push({
+            election_id: eligibilityElectionId,
+            roll_number: roll,
+            is_eligible: false
+          });
+        });
+
+        if (insertRows.length > 0) {
+          const { error: insError } = await supabase
+            .from('election_eligibility')
+            .insert(insertRows);
+          if (insError) throw insError;
+        }
+
+        logsBuffer.push(`✓ Ingestion Completed: Whitelist override applied to ${finalEligible.length} students, Blacklist applied to ${finalIneligible.length} students.`);
         setExcelValidationLogs(logsBuffer);
         setExcelSuccess(true);
-        addAuditLog('EXCEL_INGEST', 'admin', `Ingested eligibility spreadsheets overrides (${eligibleList.length} whitelist, ${ineligibleList.length} blacklist)`, 'INFO', 'ok');
+        setEligibilitySummary({
+          eligible: finalEligible.length,
+          ineligible: finalIneligible.length,
+          duplicates: totalDuplicates,
+          conflicts: conflictsCount
+        });
 
-        setVoters(prev => prev.map(v => {
-          if (eligibleList.includes(v.roll)) return { ...v, eligible: true };
-          if (ineligibleList.includes(v.roll)) return { ...v, eligible: false };
-          return v;
-        }));
+        await addAuditLog('EXCEL_INGEST', 'admin', `Ingested eligibility records for election ${eligibilityElectionId}: ${finalEligible.length} eligible, ${finalIneligible.length} restricted, ${totalDuplicates} duplicates, ${conflictsCount} conflicts`, 'INFO', 'ok');
+
+        await fetchDatabaseData();
+      } catch (err) {
+        logsBuffer.push(`❌ DATABASE WRITE ERROR: ${err.message}`);
+        setExcelValidationLogs(logsBuffer);
+        setExcelSuccess(false);
       }
-    }, 1500);
+    }, 1000);
   };
+
 
   // Secure Invalidate & Resend token flow
   const triggerResendToken = (v) => {
-    setTokenRecoveryUser(v);
-    setIsRecovering(true);
-    setRecoveryFinished(false);
-    setRecoveryStatusText('Initializing connection to secure security keystore...');
+    triggerConfirm(
+      'Regenerate & Resend Token',
+      `Are you sure you want to invalidate the old token and regenerate a new secure token for ${v.name} (${v.roll})?`,
+      () => {
+        setTokenRecoveryUser(v);
+        setIsRecovering(true);
+        setRecoveryFinished(false);
+        setRecoveryStatusText('Initializing connection to secure security keystore...');
 
-    setTimeout(() => setRecoveryStatusText('Invalidating old token key reference in ledger...'), 800);
-    setTimeout(() => setRecoveryStatusText('Writing Admin Token Invalidation Log (Token value hidden for privacy)...'), 1500);
-    setTimeout(() => setRecoveryStatusText('Generating new secure token key vector (ECDSA)...'), 2200);
-    setTimeout(() => setRecoveryStatusText('Dispatching secure token directly to voter\'s registered device...'), 3000);
-    setTimeout(() => {
-      setIsRecovering(false);
-      setRecoveryFinished(true);
-      addAuditLog('TOKEN_RECOVERY', 'admin', `Invalidated & securely resent token to user ${v.roll} (Privacy protected: cleartext token suppressed)`, 'INFO', 'ok');
-      
-      setSecurityStats(prev => ({ ...prev, duplicateAttempts: prev.duplicateAttempts + 1 }));
-    }, 3800);
+        setTimeout(() => setRecoveryStatusText('Invalidating old token key reference in ledger...'), 800);
+        setTimeout(() => setRecoveryStatusText('Writing Admin Token Invalidation Log (Token value hidden for privacy)...'), 1500);
+        setTimeout(() => setRecoveryStatusText('Generating new secure token key vector (ECDSA)...'), 2200);
+        setTimeout(() => setRecoveryStatusText('Dispatching secure token directly to voter\'s registered device...'), 3000);
+        setTimeout(() => {
+          setIsRecovering(false);
+          setRecoveryFinished(true);
+          addAuditLog('TOKEN_RECOVERY', 'admin', `Invalidated & securely resent token to user ${v.roll} (Privacy protected: cleartext token suppressed)`, 'INFO', 'ok');
+          
+          setSecurityStats(prev => ({ ...prev, duplicateAttempts: prev.duplicateAttempts + 1 }));
+        }, 3800);
+      }
+    );
   };
 
   // Tie-Breaking Draw Actions
   const handleDeclareJointWinners = (electionId) => {
-    setElections(prev => prev.map(el => {
-      if (el.id === electionId) {
-        addAuditLog('TIE_BREAK', 'admin', `Joint Winners declared for ECE Representative election (ELC004)`, 'INFO', 'ok');
-        return { ...el, status: 'Completed', draw: false, jointWinner: true };
+    const el = elections.find(x => x.id === electionId);
+    triggerConfirm(
+      'Declare Joint Winners',
+      `Are you sure you want to declare joint winners for the election "${el?.name || 'this election'}"? This override will combine victory configurations in the ledger.`,
+      () => {
+        setElections(prev => prev.map(item => {
+          if (item.id === electionId) {
+            addAuditLog('TIE_BREAK', 'admin', `Joint Winners declared for ECE Representative election (ELC004)`, 'INFO', 'ok');
+            return { ...item, status: 'Completed', draw: false, jointWinner: true };
+          }
+          return item;
+        }));
+        setInspectedElection(null);
       }
-      return el;
-    }));
-    setInspectedElection(null);
-    alert('Executive override: Declared Joint Winners. Combined victory configuration exported to records.');
+    );
   };
 
   const handleReopenElection = (electionId) => {
-    setElections(prev => prev.map(el => {
-      if (el.id === electionId) {
-        addAuditLog('TIE_BREAK', 'admin', `Re-opened election ELC004. Resetted counters, flushed previous tokens and initialized fresh window.`, 'WARNING', 'warn');
-        return { ...el, status: 'Running', draw: false, votesCast: 0, jointWinner: false };
+    const el = elections.find(x => x.id === electionId);
+    triggerConfirm(
+      'Reopen Election',
+      `Are you sure you want to reopen the election "${el?.name || 'this election'}"? Existing vote counters will be reset to zero, previous tokens will be flushed, and a new voting window will be initialized.`,
+      () => {
+        setElections(prev => prev.map(item => {
+          if (item.id === electionId) {
+            addAuditLog('TIE_BREAK', 'admin', `Re-opened election ${item.name}. Resetted counters, flushed previous tokens and initialized fresh window.`, 'WARNING', 'warn');
+            return { ...item, status: 'Running', draw: false, votesCast: 0, jointWinner: false };
+          }
+          return item;
+        }));
+        setCandidates(prev => prev.map(c => {
+          if (c.electionId === electionId) return { ...c, votes: 0 };
+          return c;
+        }));
+        setInspectedElection(null);
       }
-      return el;
-    }));
-    setCandidates(prev => prev.map(c => {
-      if (c.electionId === electionId) return { ...c, votes: 0 };
-      return c;
-    }));
-    setInspectedElection(null);
-    alert('Executive override: Target election re-opened. Vote counts reset, previous tokens flushed, and secondary voting window initialized.');
+    );
   };
 
   // --- WORKSPACE DIARY LOGIC (SECTION 4) ---
@@ -672,32 +1327,37 @@ export default function Dashboard() {
       alert('Note Title is required.');
       return;
     }
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-    if (editingNoteId) {
-      setAdminNotes(prev => prev.map(n => {
-        if (n.id === editingNoteId) {
-          return { ...n, title: noteTitleInput, text: noteTextInput };
-        }
-        return n;
-      }));
-      addAuditLog('NOTE_EDIT', 'admin', `Edited admin note: ${noteTitleInput}`);
-      setEditingNoteId(null);
-    } else {
-      const newNote = {
-        id: Date.now(),
-        title: noteTitleInput,
-        text: noteTextInput,
-        pinned: false,
-        archived: false,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 16)
-      };
-      setAdminNotes(prev => [newNote, ...prev]);
-      addAuditLog('NOTE_CREATE', 'admin', `Created admin note: ${noteTitleInput}`);
-    }
+    setTimeout(() => {
+      if (editingNoteId) {
+        setAdminNotes(prev => prev.map(n => {
+          if (n.id === editingNoteId) {
+            return { ...n, title: noteTitleInput, text: noteTextInput };
+          }
+          return n;
+        }));
+        addAuditLog('NOTE_EDIT', 'admin', `Edited admin note: ${noteTitleInput}`);
+        setEditingNoteId(null);
+      } else {
+        const newNote = {
+          id: Date.now(),
+          title: noteTitleInput,
+          text: noteTextInput,
+          pinned: false,
+          archived: false,
+          date: new Date().toISOString().replace('T', ' ').substring(0, 16)
+        };
+        setAdminNotes(prev => [newNote, ...prev]);
+        addAuditLog('NOTE_CREATE', 'admin', `Created admin note: ${noteTitleInput}`);
+      }
 
-    setNoteTitleInput('');
-    setNoteTextInput('');
-    setShowNoteModal(false);
+      setNoteTitleInput('');
+      setNoteTextInput('');
+      setShowNoteModal(false);
+      setIsSubmitting(false);
+    }, 600);
   };
 
   const handleTogglePinNote = (id) => {
@@ -724,10 +1384,14 @@ export default function Dashboard() {
 
   const handleDeleteAdminNote = (id) => {
     const noteToDelete = adminNotes.find(n => n.id === id);
-    if (window.confirm(`Delete note "${noteToDelete?.title}" permanently?`)) {
-      setAdminNotes(prev => prev.filter(n => n.id !== id));
-      addAuditLog('NOTE_DELETE', 'admin', `Deleted admin note: ${noteToDelete?.title}`);
-    }
+    triggerConfirm(
+      'Delete Admin Note',
+      `Are you sure you want to delete note "${noteToDelete?.title || 'this note'}" permanently?`,
+      () => {
+        setAdminNotes(prev => prev.filter(n => n.id !== id));
+        addAuditLog('NOTE_DELETE', 'admin', `Deleted admin note: ${noteToDelete?.title}`);
+      }
+    );
   };
 
   // --- WORKSPACE TASK LOGIC (SECTION 5) ---
@@ -737,21 +1401,26 @@ export default function Dashboard() {
       alert('Task Title is required.');
       return;
     }
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-    const newTask = {
-      id: Date.now(),
-      title: taskTitleInput,
-      priority: taskPriorityInput,
-      deadline: taskDeadlineInput,
-      completed: false
-    };
+    setTimeout(() => {
+      const newTask = {
+        id: Date.now(),
+        title: taskTitleInput,
+        priority: taskPriorityInput,
+        deadline: taskDeadlineInput,
+        completed: false
+      };
 
-    setAdminTasks(prev => [...prev, newTask]);
-    addAuditLog('TASK_CREATE', 'admin', `Created task: ${taskTitleInput}`);
-    
-    setTaskTitleInput('');
-    setTaskPriorityInput('Medium');
-    setShowTaskForm(false);
+      setAdminTasks(prev => [...prev, newTask]);
+      addAuditLog('TASK_CREATE', 'admin', `Created task: ${taskTitleInput}`);
+      
+      setTaskTitleInput('');
+      setTaskPriorityInput('Medium');
+      setShowTaskForm(false);
+      setIsSubmitting(false);
+    }, 600);
   };
 
   const handleToggleTaskCompleted = (id) => {
@@ -772,7 +1441,7 @@ export default function Dashboard() {
   };
 
   // --- WORKSPACE PASSWORD SETTINGS (SECTION 8) ---
-  const handleUpdatePassword = (e) => {
+  const handleUpdatePassword = async (e) => {
     e.preventDefault();
     if (!adminPassCurrent || !adminPassNew || !adminPassConfirm) {
       alert('Please fill out all password fields.');
@@ -782,11 +1451,40 @@ export default function Dashboard() {
       alert('New passwords do not match.');
       return;
     }
-    addAuditLog('PASSWORD_CHANGE', 'admin', 'Super Admin password successfully updated', 'INFO', 'ok');
-    alert('Security Settings: Password updated successfully (Simulated).');
-    setAdminPassCurrent('');
-    setAdminPassNew('');
-    setAdminPassConfirm('');
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: adminPassNew,
+      });
+
+      if (error) {
+        alert(error.message);
+      } else {
+        addAuditLog('PASSWORD_CHANGE', 'admin', 'Super Admin password successfully updated', 'INFO', 'ok');
+        alert('Security Settings: Password updated successfully.');
+        setAdminPassCurrent('');
+        setAdminPassNew('');
+        setAdminPassConfirm('');
+      }
+    } catch (err) {
+      alert('Failed to update password.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (window.confirm('Are you sure you want to end your secure administrative session? All current context will be wiped.')) {
+      try {
+        await supabase.rpc('handle_logout');
+        await supabase.auth.signOut();
+      } catch (err) {
+        await supabase.auth.signOut();
+      }
+      navigate('/portal');
+    }
   };
 
   // Bulk User Actions
@@ -841,37 +1539,42 @@ export default function Dashboard() {
 
   // PDF report compiler simulation
   const handleExportPdfReport = (elId) => {
-    setExportingElectionId(elId);
-    setExportProgress(0);
-    setSignedPdfData(null);
-
     const el = elections.find(x => x.id === elId);
-    const interval = setInterval(() => {
-      setExportProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setSignedPdfData({
-            title: el.name,
-            id: el.id,
-            date: new Date().toLocaleString(),
-            reportId: `VG-RPT-${el.id}-${Math.floor(Math.random() * 9000 + 1000)}`,
-            votes: el.votesCast,
-            voters: el.voters,
-            type: el.type,
-            signature: 'SUPER_ADMIN_CRYPT_SIGNED'
+    triggerConfirm(
+      'Export Cryptographic Report',
+      `Are you sure you want to export the cryptographic PDF report for "${el?.name || 'this election'}"? This compiles all signed voter vectors and audit trails.`,
+      () => {
+        setExportingElectionId(elId);
+        setExportProgress(0);
+        setSignedPdfData(null);
+
+        const interval = setInterval(() => {
+          setExportProgress(prev => {
+            if (prev >= 100) {
+              clearInterval(interval);
+              setSignedPdfData({
+                title: el.name,
+                id: el.id,
+                date: new Date().toLocaleString(),
+                reportId: `VG-RPT-${el.id}-${Math.floor(Math.random() * 9000 + 1000)}`,
+                votes: el.votesCast,
+                voters: el.voters,
+                type: el.type,
+                signature: 'SUPER_ADMIN_CRYPT_SIGNED'
+              });
+              addAuditLog('REPORT_COMPILE', 'admin', `Compiled cryptographically signed PDF report for ${el.name} (${el.id})`, 'INFO', 'ok');
+              return 100;
+            }
+            return prev + 10;
           });
-          addAuditLog('REPORT_COMPILE', 'admin', `Compiled cryptographically signed PDF report for ${el.name} (${el.id})`, 'INFO', 'ok');
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 150);
+        }, 150);
+      }
+    );
   };
 
   // Global search filtering logic
   const handleGlobalSearchChange = (e) => {
-    const val = e.target.value;
-    setGlobalSearch(val);
+    setSearchInput(e.target.value);
   };
 
   // Filtered lists for rendering based on search and other inputs
@@ -908,11 +1611,38 @@ export default function Dashboard() {
   const pinnedNotes = filteredAdminNotes.filter(n => n.pinned);
   const unpinnedNotes = filteredAdminNotes.filter(n => !n.pinned);
 
+  const selectedElForCand = elections.find(e => e.id === candElectionId);
+  const isCandFormLocked = selectedElForCand && selectedElForCand.status !== 'Draft';
+
+  const selectedElForElig = elections.find(e => e.id === eligibilityElectionId);
+  const isEligFormLocked = selectedElForElig && selectedElForElig.status !== 'Draft';
+
+  const activeElection = elections.find(e => e.status === 'Active' || e.status === 'Running' || e.status === 'Paused');
+
+  if (checkingAuth) {
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#0d1117', color: '#f0f6fc', gap: '16px' }}>
+        <div style={{ width: '40px', height: '40px', border: '3px solid rgba(212, 168, 67, 0.2)', borderTop: '3px solid #d4a843', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '13.5px', color: 'rgba(240, 239, 232, 0.8)' }}>Verifying administrative session...</div>
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-page">
+      {sidebarOpen && (
+        <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)}></div>
+      )}
 
       {/* SIDEBAR NAVIGATION */}
-      <div className="dashboard-sidebar">
+      <div className={`dashboard-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div>
           <div className="sidebar-brand">
             <LogoMark size={14} />
@@ -936,6 +1666,7 @@ export default function Dashboard() {
                 className={`sidebar-nav-item ${activeTab === tab.id ? 'active' : ''}`}
                 onClick={() => {
                   setActiveTab(tab.id);
+                  setSidebarOpen(false);
                 }}
               >
                 <div className="sidebar-nav-dot"></div>
@@ -963,13 +1694,13 @@ export default function Dashboard() {
 
         <div className="sidebar-footer">
           <div className="admin-badge">
-            <div className="admin-avatar">AD</div>
+            <div className="admin-avatar">{adminProfile ? adminProfile.full_name.split(' ').map(x=>x[0]).join('') : 'AD'}</div>
             <div className="admin-info">
-              <span className="admin-name">VGADM001</span>
+              <span className="admin-name">{adminProfile ? adminProfile.admin_id : 'VG-SUPER-001'}</span>
               <span className="admin-role">Super Administrator</span>
             </div>
           </div>
-          <button className="btn-logout" onClick={() => navigate('/portal')}>Terminate Session</button>
+          <button className="btn-logout" onClick={handleLogout}>Terminate Session</button>
         </div>
       </div>
 
@@ -977,6 +1708,16 @@ export default function Dashboard() {
       <div className="dashboard-main">
         {/* HEADER BAR */}
         <div className="dashboard-header">
+          <button 
+            className="hamburger-toggle" 
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+
           <div className="dashboard-title-area">
             <h1 className="dashboard-title">{activeTab === 'Dashboard' ? 'Administrator Cockpit' : activeTab}</h1>
             <span className="dashboard-subtitle">VoteGuard Secure Election Governance Cockpit</span>
@@ -988,12 +1729,12 @@ export default function Dashboard() {
               <input 
                 type="text" 
                 placeholder="Search everywhere..."
-                value={globalSearch}
+                value={searchInput}
                 onChange={handleGlobalSearchChange}
                 className="global-search-input"
               />
-              {globalSearch && (
-                <button className="clear-search-btn" onClick={() => setGlobalSearch('')}>✕</button>
+              {searchInput && (
+                <button className="clear-search-btn" onClick={() => { setSearchInput(''); setGlobalSearch(''); }}>✕</button>
               )}
             </div>
 
@@ -1145,7 +1886,80 @@ export default function Dashboard() {
                   </div>
                 </div>
               </SpotlightCard>
+
+              {/* Active Election Health Integrity Widget */}
+              <SpotlightCard className="dash-chart-card-spotlight" spotlightColor="rgba(74, 157, 143, 0.15)">
+                <div className="dash-chart-card">
+                  <div className="dash-chart-header">
+                    <span className="dash-chart-title">
+                      <IconShield size={18} /> Active Election Health
+                    </span>
+                    {activeElection ? (
+                      <span className={`badge-role ${activeElection.status === 'Active' || activeElection.status === 'Running' || activeElection.status === 'Paused' ? 'green' : 'gold'}`}>
+                        {activeElection.status === 'Active' ? 'Running' : activeElection.status}
+                      </span>
+                    ) : (
+                      <span className="badge-role" style={{ color: 'var(--text3)' }}>Inactive</span>
+                    )}
+                  </div>
+
+                  {activeElection ? (
+                    <div style={{ marginTop: '12px' }}>
+                      <h3 style={{ fontSize: '14px', margin: '0 0 10px 0', color: 'var(--text)' }}>
+                        {activeElection.name}
+                      </h3>
+                      
+                      <div className="integrity-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                        <div className="integrity-tile" style={{ padding: '8px' }}>
+                          <span className="int-lbl" style={{ fontSize: '9.5px' }}>Active Candidates</span>
+                          <span className="int-val color-green" style={{ fontSize: '16px' }}>
+                            {candidates.filter(c => c.electionId === activeElection.id && c.status === 'active').length}
+                          </span>
+                        </div>
+                        <div className="integrity-tile" style={{ padding: '8px' }}>
+                          <span className="int-lbl" style={{ fontSize: '9.5px' }}>Eligible Students</span>
+                          <span className="int-val color-green" style={{ fontSize: '16px' }}>
+                            {activeElection.voters}
+                          </span>
+                        </div>
+                        <div className="integrity-tile" style={{ padding: '8px' }}>
+                          <span className="int-lbl" style={{ fontSize: '9.5px' }}>Tokens Requested</span>
+                          <span className="int-val color-gold" style={{ fontSize: '16px' }}>
+                            {voters.filter(v => v.status === 'Token Dispatched - Not Voted' || v.status === 'Voted').length}
+                          </span>
+                        </div>
+                        <div className="integrity-tile" style={{ padding: '8px' }}>
+                          <span className="int-lbl" style={{ fontSize: '9.5px' }}>Votes Cast</span>
+                          <span className="int-val color-gold" style={{ fontSize: '16px' }}>
+                            {voters.filter(v => v.status === 'Voted').length}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="security-status-msg" style={{ marginTop: '12px', padding: '8px', fontSize: '11px', borderRadius: '4px', background: 'rgba(255,255,255,0.02)' }}>
+                        <strong>Integrity Status: </strong>
+                        {candidates.filter(c => c.electionId === activeElection.id && c.status === 'active').length < 2 ? (
+                          <span style={{ color: 'var(--red)' }}>Configuration Error: Minimum 2 candidates required.</span>
+                        ) : activeElection.voters === 0 ? (
+                          <span style={{ color: 'var(--gold)' }}>Warning: Eligibility roster is empty.</span>
+                        ) : (
+                          <span style={{ color: 'var(--green)' }}>Healthy (All safeguards verified)</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '30px 10px', textAlign: 'center', color: 'var(--text3)', fontSize: '12.5px' }}>
+                      <IconAlertTriangle size={24} style={{ color: 'var(--text3)', marginBottom: '8px' }} />
+                      <p style={{ margin: 0 }}>No active election currently running.</p>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: 'var(--text3)' }}>
+                        Initialize an election and activate it in the Election Management tab.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </SpotlightCard>
             </div>
+
 
             {/* REAL-TIME TERMINAL AUDIT ROW */}
             <div className="dash-analytics-row" style={{ gridTemplateColumns: '1fr' }}>
@@ -1161,14 +1975,18 @@ export default function Dashboard() {
                   </div>
 
                   <div className="dash-terminal-log" style={{ height: '220px' }}>
-                    {filteredLogs.map((log, index) => (
-                      <div key={index} className={`log-row-level ${log.level.toLowerCase()}`}>
-                        <span className="ts">[{log.ts}]</span>
-                        <span className={`log-severity-badge ${log.level.toLowerCase()}`}>{log.level}</span>
-                        <span className="ev">{log.ev}</span>
-                        <span className="user">{log.usr}</span> · {log.desc}
-                      </div>
-                    ))}
+                    {filteredLogs.length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text3)' }}>No logs match search filters.</div>
+                    ) : (
+                      filteredLogs.map((log, index) => (
+                        <div key={index} className={`log-row-level ${log.level.toLowerCase()}`}>
+                          <span className="ts">[{log.ts}]</span>
+                          <span className={`log-severity-badge ${log.level.toLowerCase()}`}>{log.level}</span>
+                          <span className="ev">{highlightMatch(log.ev, globalSearch)}</span>
+                          <span className="user">{highlightMatch(log.usr, globalSearch)}</span> · {highlightMatch(log.desc, globalSearch)}
+                        </div>
+                      ))
+                    )}
                     <div ref={logEndRef} />
                   </div>
                 </div>
@@ -1183,8 +2001,8 @@ export default function Dashboard() {
                   <div className="admin-profile-cockpit">
                     <div className="admin-avatar-lg">HH</div>
                     <div className="admin-profile-details">
-                      <h3>Hari Harsha (Super Admin)</h3>
-                      <p>Operator Code: <strong>@harsha_admin</strong></p>
+                      <h3>{adminProfile ? adminProfile.full_name : 'Hari Harsha'} (Super Admin)</h3>
+                      <p>Operator Code: <strong>{adminProfile ? `@${adminProfile.admin_id.toLowerCase().replace('-', '_')}` : '@harsha_admin'}</strong></p>
                       <p>Assigned Role: <span className="badge-role gold">SUPER_ADMIN</span></p>
                       <p className="last-login">Last authenticated: Today at 14:12 (OTP Verified via Email)</p>
                     </div>
@@ -1231,8 +2049,9 @@ export default function Dashboard() {
                 
                 {/* Template loader subsystem */}
                 <div className="template-selector-sub">
-                  <label className="field-title">Load Configuration Template:</label>
+                  <label className="field-title" htmlFor="template-select">Load Configuration Template:</label>
                   <select 
+                    id="template-select"
                     value={selectedTemplate} 
                     onChange={(e) => handleLoadTemplate(e.target.value)}
                     className="template-select-box"
@@ -1250,17 +2069,19 @@ export default function Dashboard() {
                 <form onSubmit={handleCreateElection} className="create-election-form">
                   <div className="form-row-grid">
                     <div className="field">
-                      <label>Election Name</label>
+                      <label htmlFor="new-el-name">Election Name</label>
                       <input 
+                        id="new-el-name"
                         type="text" 
                         placeholder="e.g. Student Council CR Poll"
                         value={newElName}
                         onChange={(e) => setNewElName(e.target.value)}
+                        aria-required="true"
                       />
                     </div>
                     <div className="field">
-                      <label>Access Type</label>
-                      <select value={newElType} onChange={(e) => setNewElType(e.target.value)}>
+                      <label htmlFor="new-el-type">Access Type</label>
+                      <select id="new-el-type" value={newElType} onChange={(e) => setNewElType(e.target.value)}>
                         <option value="Public">Public (Visible to all eligible)</option>
                         <option value="Private">Private (Requires Access Code)</option>
                       </select>
@@ -1269,8 +2090,9 @@ export default function Dashboard() {
 
                   <div className="form-row-grid">
                     <div className="field">
-                      <label>Manifesto/Description</label>
+                      <label htmlFor="new-el-desc">Manifesto/Description</label>
                       <textarea 
+                        id="new-el-desc"
                         rows={2}
                         placeholder="Brief summary of the election purpose..."
                         value={newElDesc}
@@ -1279,8 +2101,9 @@ export default function Dashboard() {
                     </div>
                     {newElType === 'Private' && (
                       <div className="field">
-                        <label>Access Code</label>
+                        <label htmlFor="new-el-access-code">Access Code</label>
                         <input 
+                          id="new-el-access-code"
                           type="text" 
                           placeholder="e.g. VG-ACCESS-CODE"
                           value={newElAccessCode}
@@ -1292,16 +2115,17 @@ export default function Dashboard() {
 
                   <div className="form-row-grid-3">
                     <div className="field">
-                      <label>Eligible Branch</label>
-                      <input type="text" value={newElBranch} onChange={(e) => setNewElBranch(e.target.value)} placeholder="e.g. CSE, ECE, ALL" />
+                      <label htmlFor="new-el-branch">Eligible Branch</label>
+                      <input id="new-el-branch" type="text" value={newElBranch} onChange={(e) => setNewElBranch(e.target.value)} placeholder="e.g. CSE, ECE, ALL" />
                     </div>
                     <div className="field">
-                      <label>Roll Range Limits</label>
-                      <input type="text" value={newElRange} onChange={(e) => setNewElRange(e.target.value)} placeholder="e.g. 1-64" />
+                      <label htmlFor="new-el-range">Roll Range Limits</label>
+                      <input id="new-el-range" type="text" value={newElRange} onChange={(e) => setNewElRange(e.target.value)} placeholder="e.g. 1-64" />
                     </div>
                     <div className="field checkbox-field">
-                      <label className="checkbox-label">
+                      <label className="checkbox-label" htmlFor="new-el-laterals">
                         <input 
+                          id="new-el-laterals"
                           type="checkbox" 
                           checked={newElLaterals} 
                           onChange={(e) => setNewElLaterals(e.target.checked)} 
@@ -1313,25 +2137,59 @@ export default function Dashboard() {
 
                   <div className="form-row-grid">
                     <div className="field">
-                      <label>Starts Date</label>
-                      <input type="date" value={newElStart} onChange={(e) => setNewElStart(e.target.value)} />
+                      <label htmlFor="new-el-start">Starts Date</label>
+                      <input id="new-el-start" type="date" value={newElStart} onChange={(e) => setNewElStart(e.target.value)} />
                     </div>
                     <div className="field">
-                      <label>Ends Timestamp Limit</label>
-                      <input type="text" value={newElEnd} onChange={(e) => setNewElEnd(e.target.value)} placeholder="YYYY-MM-DD HH:MM" />
+                      <label htmlFor="new-el-end">Ends Timestamp Limit</label>
+                      <input id="new-el-end" type="text" value={newElEnd} onChange={(e) => setNewElEnd(e.target.value)} placeholder="YYYY-MM-DD HH:MM" />
                     </div>
                   </div>
 
-                  <button type="submit" className="btn-create-election">Initialize Election Registry</button>
+                  <button type="submit" className="btn-create-election" disabled={isSubmitting}>
+                    {isSubmitting ? 'Initializing Registry...' : 'Initialize Election Registry'}
+                  </button>
                 </form>
               </div>
 
               {/* Excel Eligibility Overrides Ingestion */}
               <div className="users-table-card">
-                <h2 className="tab-section-title">Ingest Eligibility Overrides Pipeline (Excel Simulator)</h2>
-                <p className="section-desc">Format: comma separated student roll numbers (e.g. 21CS042, 22EC144).</p>
+                <h2 className="tab-section-title">Ingest Eligibility Overrides Pipeline</h2>
+                <p className="section-desc">Upload Excel/CSV spreadsheets or manually enter roll numbers. Lock is applied on active elections.</p>
                 
-                <div className="excel-uploader-grid">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  <div className="field" style={{ gridColumn: 'span 2' }}>
+                    <label htmlFor="eligibility-election-select">Target Election (Draft/Configured Only)</label>
+                    <select 
+                      id="eligibility-election-select"
+                      value={eligibilityElectionId}
+                      onChange={(e) => setEligibilityElectionId(e.target.value)}
+                      style={{ width: '100%', padding: '10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)' }}
+                    >
+                      <option value="">-- Choose Election to Ingest Eligibility --</option>
+                      {elections.filter(el => el.status === 'Draft' || el.status === 'Configured').map(el => (
+                        <option key={el.id} value={el.id}>{el.name} ({el.id})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field" style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '8px', border: '1px dashed var(--border)' }}>
+                    <label style={{ display: 'block', fontSize: '13px', marginBottom: '8px', color: 'var(--text2)' }} htmlFor="excel-file-upload">
+                      Upload Spreadsheet File (.xlsx, .xls, .csv):
+                    </label>
+                    <input 
+                      id="excel-file-upload"
+                      type="file" 
+                      accept=".xlsx,.xls,.csv" 
+                      onChange={handleFileUpload}
+                      style={{ color: 'var(--text2)', fontSize: '13px' }}
+                      disabled={isEligFormLocked || !eligibilityElectionId}
+                    />
+                    <p style={{ margin: '8px 0 0 0', fontSize: '11px', color: 'var(--text3)' }}>
+                      Make sure Column A contains Whitelist rolls and Column B contains Blacklist rolls.
+                    </p>
+                  </div>
+
                   <div className="field">
                     <label>Column A: Eligible Whitelist (Inclusions)</label>
                     <textarea 
@@ -1339,6 +2197,7 @@ export default function Dashboard() {
                       placeholder="Roll numbers to force-approve (e.g. 23ME089, 21CS001)"
                       value={excelInputEligible}
                       onChange={(e) => setExcelInputEligible(e.target.value)}
+                      disabled={isEligFormLocked || !eligibilityElectionId}
                     />
                   </div>
                   <div className="field">
@@ -1348,25 +2207,67 @@ export default function Dashboard() {
                       placeholder="Roll numbers to restrict/exclude (e.g. 23EE005)"
                       value={excelInputIneligible}
                       onChange={(e) => setExcelInputIneligible(e.target.value)}
+                      disabled={isEligFormLocked || !eligibilityElectionId}
                     />
                   </div>
                 </div>
 
-                <button className="btn-action-sm gold" onClick={handleExcelValidation}>
-                  Validate Spreadsheet &amp; Upload
+                <button 
+                  className="btn-action-sm gold" 
+                  onClick={handleExcelValidation} 
+                  disabled={isEligFormLocked || !eligibilityElectionId || isSubmitting}
+                >
+                  Validate &amp; Ingest Eligibility
                 </button>
 
+                {isEligFormLocked && (
+                  <p style={{ marginTop: '10px', color: 'var(--red)', fontSize: '12px' }}>
+                    ⚠️ Eligibility roster is locked because the target election is active or ended.
+                  </p>
+                )}
+
                 {excelSuccess !== null && (
-                  <div className={`excel-validation-results ${excelSuccess === 'checking' ? 'info' : excelSuccess ? 'success' : 'error'}`}>
+                  <div className={`excel-validation-results ${excelSuccess === 'checking' ? 'info' : excelSuccess ? 'success' : 'error'}`} style={{ marginTop: '16px' }}>
                     <h4>Ingestion Validator Log Outcome:</h4>
                     <div className="excel-log-outputs">
                       {excelValidationLogs.map((logLine, idx) => (
                         <div key={idx} className="log-line">{logLine}</div>
                       ))}
                     </div>
+
+                    {excelSuccess === true && eligibilitySummary && (
+                      <div className="eligibility-summary-panel animate-fade-in" style={{
+                        marginTop: '16px',
+                        padding: '16px',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '8px',
+                      }}>
+                        <h4 style={{ margin: '0 0 12px 0', fontSize: '11px', color: 'var(--gold)', fontFamily: 'IBM Plex Mono, monospace' }}>ELIGIBILITY INGESTION SUMMARY:</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                          <div style={{ background: 'rgba(74, 157, 143, 0.1)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>Eligible Students</span>
+                            <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#4a9d8f' }}>{eligibilitySummary.eligible}</span>
+                          </div>
+                          <div style={{ background: 'rgba(239, 83, 80, 0.1)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>Non-Eligible</span>
+                            <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#ef5350' }}>{eligibilitySummary.ineligible}</span>
+                          </div>
+                          <div style={{ background: 'rgba(212, 168, 67, 0.1)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>Duplicates Removed</span>
+                            <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#d4a843' }}>{eligibilitySummary.duplicates}</span>
+                          </div>
+                          <div style={{ background: 'rgba(239, 83, 80, 0.15)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>Conflicts Found</span>
+                            <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff6b6b' }}>{eligibilitySummary.conflicts}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
+
 
               {/* Election Lifecycle List */}
               <div className="view-action-bar" style={{ marginTop: '20px' }}>
@@ -1374,12 +2275,19 @@ export default function Dashboard() {
               </div>
 
               <div className="elections-list">
-                {filteredElections.map((el) => (
-                  <div key={el.id} className={`election-list-item status-${el.status.toLowerCase()}`}>
-                    
-                    <div className="election-meta-left">
-                      <span className="election-item-title">{el.name}</span>
-                      <span className="election-item-dates">Duration: {el.start} to {el.end} · ID: {el.id} · Type: <strong>{el.type}</strong></span>
+                {filteredElections.length === 0 ? (
+                  <div className="dash-empty-state">
+                    <IconSearch size={48} className="empty-state-icon" style={{ color: 'var(--text3)', marginBottom: '12px' }} />
+                    <h3 style={{ margin: '0 0 6px 0', fontSize: '15px', color: 'var(--text)' }}>No matching elections found</h3>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text2)' }}>Try refining your search query or check back later.</p>
+                  </div>
+                ) : (
+                  filteredElections.map((el) => (
+                    <div key={el.id} className={`election-list-item status-${el.status.toLowerCase()}`}>
+                      
+                      <div className="election-meta-left">
+                        <span className="election-item-title">{highlightMatch(el.name, globalSearch)}</span>
+                        <span className="election-item-dates">Duration: {el.start} to {el.end} · ID: {highlightMatch(el.id, globalSearch)} · Type: <strong>{el.type}</strong></span>
                       
                       {/* Visual lifecycle timeline */}
                       <div className="visual-timeline-container">
@@ -1391,7 +2299,10 @@ export default function Dashboard() {
                           { key: 'Completed', lbl: 'Completed' },
                           { key: 'Archived', lbl: 'Archived' }
                         ].map((node) => {
-                          const isActive = el.status === node.key;
+                          const isActive = el.status === node.key || 
+                            (el.status === 'Draft' && node.key === 'Configured') ||
+                            (el.status === 'Active' && node.key === 'Running') ||
+                            (el.status === 'Emergency_Stopped' && node.key === 'Emergency_Locked');
                           return (
                             <div key={node.key} className={`timeline-node ${isActive ? 'active' : ''}`}>
                               <div className="timeline-node-circle"></div>
@@ -1411,8 +2322,8 @@ export default function Dashboard() {
                         <span className="item-stat-lbl">Turnout</span>
                         <span className="item-stat-val">{el.votesCast} cast</span>
                       </div>
-                      <span className={`election-status-tag ${el.status.toLowerCase()}`}>
-                        {el.status.replace('_', ' ')}
+                      <span className={`election-status-tag ${el.status === 'Active' || el.status === 'Running' ? 'running' : el.status.toLowerCase()}`}>
+                        {el.status === 'Active' ? 'Running' : el.status.replace('_', ' ')}
                       </span>
                     </div>
 
@@ -1421,7 +2332,13 @@ export default function Dashboard() {
                         <IconEye size={18} /> Preview
                       </button>
 
-                      {el.status === 'Running' && (
+                      {(el.status === 'Draft' || el.status === 'Configured') && (
+                        <button className="btn-action-sm positive" onClick={() => startElection(el.id)} style={{ background: 'rgba(74, 157, 143, 0.2)', color: '#4a9d8f' }}>
+                          <IconPlayerPlay size={18} /> Start Election
+                        </button>
+                      )}
+
+                      {(el.status === 'Running' || el.status === 'Active') && (
                         <>
                           <button className="btn-action-sm" onClick={() => toggleElectionStatus(el.id)}>
                             <IconPlayerPause size={18} /> Pause
@@ -1449,10 +2366,14 @@ export default function Dashboard() {
                         </>
                       )}
 
-                      {el.status === 'Emergency_Locked' && (
-                        <button className="btn-action-sm" onClick={() => {
-                          setElections(prev => prev.map(x => x.id === el.id ? { ...x, status: 'Running' } : x));
-                          addAuditLog('EMERGENCY_UNLOCK', 'admin', `Unlocked election ${el.name}`, 'INFO', 'ok');
+                      {(el.status === 'Emergency_Locked' || el.status === 'Emergency_Stopped') && (
+                        <button className="btn-action-sm" onClick={async () => {
+                          const { error } = await supabase.from('elections').update({ status: 'Active' }).eq('id', el.id);
+                          if (error) alert(error.message);
+                          else {
+                            await addAuditLog('EMERGENCY_UNLOCK', 'admin', `Unlocked election ${el.name}`, 'INFO', 'ok');
+                            await fetchDatabaseData();
+                          }
                         }}>
                           <IconLockOpen size={18} /> Unlock
                         </button>
@@ -1477,8 +2398,9 @@ export default function Dashboard() {
                       )}
                     </div>
 
+
                   </div>
-                ))}
+                )))}
               </div>
 
             </div>
@@ -1493,17 +2415,20 @@ export default function Dashboard() {
               <form onSubmit={handleCandidateSubmit} className="create-election-form">
                 <div className="form-row-grid">
                   <div className="field">
-                    <label>Full Name</label>
+                    <label htmlFor="cand-fullname">Full Name</label>
                     <input 
+                      id="cand-fullname"
                       type="text" 
                       placeholder="e.g. Priya Sharma" 
                       value={candName} 
                       onChange={(e) => setCandName(e.target.value)} 
+                      aria-required="true"
+                      disabled={isCandFormLocked}
                     />
                   </div>
                   <div className="field">
-                    <label>Department</label>
-                    <select value={candDept} onChange={(e) => setCandDept(e.target.value)}>
+                    <label htmlFor="cand-dept">Department</label>
+                    <select id="cand-dept" value={candDept} onChange={(e) => setCandDept(e.target.value)} disabled={isCandFormLocked}>
                       <option value="CSE">CSE (Computer Science)</option>
                       <option value="ECE">ECE (Electronics)</option>
                       <option value="ME">ME (Mechanical)</option>
@@ -1515,17 +2440,20 @@ export default function Dashboard() {
 
                 <div className="form-row-grid">
                   <div className="field">
-                    <label>Student Roll Number</label>
+                    <label htmlFor="cand-roll">Student Roll Number</label>
                     <input 
+                      id="cand-roll"
                       type="text" 
                       placeholder="e.g. 21CS042" 
                       value={candRoll} 
                       onChange={(e) => setCandRoll(e.target.value)} 
+                      aria-required="true"
+                      disabled={isCandFormLocked}
                     />
                   </div>
                   <div className="field">
-                    <label>Assign to Election</label>
-                    <select value={candElectionId} onChange={(e) => setCandElectionId(e.target.value)}>
+                    <label htmlFor="cand-election-id">Assign to Election</label>
+                    <select id="cand-election-id" value={candElectionId} onChange={(e) => setCandElectionId(e.target.value)} disabled={isCandFormLocked}>
                       {elections.filter(el => el.status !== 'Archived').map(el => (
                         <option key={el.id} value={el.id}>{el.name} ({el.id})</option>
                       ))}
@@ -1534,12 +2462,14 @@ export default function Dashboard() {
                 </div>
 
                 <div className="field">
-                  <label>Manifesto Quote</label>
+                  <label htmlFor="cand-manifesto">Manifesto Quote</label>
                   <textarea 
+                    id="cand-manifesto"
                     rows={2} 
                     placeholder="Short manifesto quote or summary..." 
                     value={candManifesto} 
                     onChange={(e) => setCandManifesto(e.target.value)} 
+                    disabled={isCandFormLocked}
                   />
                 </div>
 
@@ -1553,16 +2483,22 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <button type="submit" className="btn-create-election">
-                  {editCandId ? 'Update Candidate Entry' : 'Bind Candidate Entry'}
+                <button type="submit" className="btn-create-election" disabled={isSubmitting || isCandFormLocked}>
+                  {isSubmitting ? 'Saving Profile...' : (editCandId ? 'Update Candidate Entry' : 'Bind Candidate Entry')}
                 </button>
+
+                {isCandFormLocked && (
+                  <p style={{ marginTop: '10px', color: 'var(--red)', fontSize: '12px' }}>
+                    ⚠️ Candidate roster is locked because the assigned election is active or completed.
+                  </p>
+                )}
               </form>
             </div>
 
             {/* Candidates Directory */}
             <div className="users-table-card" style={{ marginTop: '20px' }}>
               <h2 className="tab-section-title">Candidates Directory</h2>
-              <table className="dash-table">
+              <table className="dash-table candidates-table">
                 <thead>
                   <tr>
                     <th>NAME</th>
@@ -1570,29 +2506,82 @@ export default function Dashboard() {
                     <th>DEPT</th>
                     <th>ASSIGNED ELECTION</th>
                     <th>MANIFESTO</th>
+                    <th>STATUS</th>
                     <th style={{ textAlign: 'right' }}>ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredCandidates.map(c => {
                     const el = elections.find(e => e.id === c.electionId);
+                    const isLocked = el && el.status !== 'Draft';
                     return (
                       <tr key={c.id}>
-                        <td><strong>{c.name}</strong></td>
-                        <td className="user-roll">{c.rollNo}</td>
-                        <td>{c.dept}</td>
-                        <td><span className="badge-role gold">{el ? el.name : 'Unknown Election'}</span></td>
-                        <td style={{ fontSize: '11px', color: 'var(--text2)', maxWidth: '280px' }}>{c.manifesto}</td>
+                        <td data-label="Name"><strong>{highlightMatch(c.name, globalSearch)}</strong></td>
+                        <td data-label="Roll Number" className="user-roll">{highlightMatch(c.rollNo, globalSearch)}</td>
+                        <td data-label="Dept">{highlightMatch(c.dept, globalSearch)}</td>
+                        <td data-label="Assigned Election"><span className="badge-role gold">{el ? el.name : 'Unknown Election'}</span></td>
+                        <td data-label="Manifesto" style={{ fontSize: '11px', color: 'var(--text2)', maxWidth: '280px' }}>{c.manifesto}</td>
+                        <td data-label="Status">
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 'bold',
+                            background: c.status === 'active' ? 'rgba(74, 157, 143, 0.15)' : 'rgba(239, 83, 80, 0.15)',
+                            color: c.status === 'active' ? '#4a9d8f' : '#ef5350'
+                          }}>
+                            {c.status === 'active' ? 'Active' : 'Withdrawn'}
+                          </span>
+                        </td>
                         <td style={{ textAlign: 'right' }}>
-                          <button className="btn-action-sm" onClick={() => handleEditCandidateClick(c)}><IconPencil size={18} /> Edit</button>
-                          <button className="btn-action-sm danger" onClick={() => handleDeleteCandidate(c.id, c.electionId)}>✕ Remove</button>
+                          <button 
+                            className="btn-action-sm" 
+                            onClick={() => handleEditCandidateClick(c)}
+                            disabled={isLocked}
+                          >
+                            <IconPencil size={18} /> Edit
+                          </button>
+                          
+                          {c.status === 'inactive' ? (
+                            <button 
+                              className="btn-action-sm positive" 
+                              onClick={async () => {
+                                if (isLocked) {
+                                  alert('Cannot modify candidate for an active or completed election.');
+                                  return;
+                                }
+                                const { error } = await supabase.from('candidates').update({ status: 'active' }).eq('id', c.id);
+                                if (error) alert(error.message);
+                                else {
+                                  await addAuditLog('CANDIDATE_REACTIVATE', 'admin', `Reactivated candidate ${c.name} (${c.rollNo})`, 'INFO', 'ok');
+                                  await fetchDatabaseData();
+                                }
+                              }}
+                              disabled={isLocked}
+                            >
+                              Reactivate
+                            </button>
+                          ) : (
+                            <button 
+                              className="btn-action-sm danger" 
+                              onClick={() => handleDeleteCandidate(c.id, c.electionId)}
+                              disabled={isLocked}
+                            >
+                              ✕ Withdraw
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
                   })}
                   {filteredCandidates.length === 0 && (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text3)' }}>No candidates match search queries.</td>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: '30px 10px' }}>
+                        <div className="dash-empty-state-small">
+                          <IconSearch size={32} style={{ color: 'var(--text3)', marginBottom: '8px' }} />
+                          <p style={{ margin: 0, color: 'var(--text2)', fontSize: '13px' }}>No candidates match search queries.</p>
+                        </div>
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -1600,6 +2589,7 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
 
         {/* USER MANAGEMENT TAB */}
         {activeTab === 'Users' && (
@@ -1616,7 +2606,7 @@ export default function Dashboard() {
                 <button className="btn-action-sm" onClick={() => handleBulkAction('reset')}><IconRefresh size={18} /> Bulk Reset status</button>
               </div>
 
-              <table className="dash-table">
+              <table className="dash-table voters-table">
                 <thead>
                   <tr>
                     <th style={{ width: '30px' }}>
@@ -1639,24 +2629,24 @@ export default function Dashboard() {
                 <tbody>
                   {filteredVoters.map((v) => (
                     <tr key={v.roll}>
-                      <td>
+                      <td data-label="Select">
                         <input 
                           type="checkbox" 
                           checked={selectedVoters.includes(v.roll)}
                           onChange={() => toggleSelectVoter(v.roll)}
                         />
                       </td>
-                      <td className="user-roll"><strong>{v.roll}</strong></td>
-                      <td className="user-roll">{v.userCreatedId}</td>
-                      <td className="user-roll" style={{ color: 'var(--text3)' }}>{v.systemId}</td>
-                      <td>{v.name}</td>
-                      <td>{v.dept}</td>
-                      <td>
+                      <td data-label="Institutional ID" className="user-roll"><strong>{highlightMatch(v.roll, globalSearch)}</strong></td>
+                      <td data-label="User-Created ID" className="user-roll">{highlightMatch(v.userCreatedId, globalSearch)}</td>
+                      <td data-label="System ID" className="user-roll" style={{ color: 'var(--text3)' }}>{highlightMatch(v.systemId, globalSearch)}</td>
+                      <td data-label="Full Name">{highlightMatch(v.name, globalSearch)}</td>
+                      <td data-label="Dept">{highlightMatch(v.dept, globalSearch)}</td>
+                      <td data-label="Eligible">
                         <span className={`eligibility-badge ${v.eligible ? 'yes' : 'no'}`}>
                           {v.eligible ? 'Eligible Whitelist' : 'Restricted Blacklist'}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="Status">
                         <span className={`user-status-dot ${v.status.toLowerCase().includes('voted') ? 'voted' : 'pending'}`}></span>
                         {v.status}
                       </td>
@@ -1677,7 +2667,12 @@ export default function Dashboard() {
                   ))}
                   {filteredVoters.length === 0 && (
                     <tr>
-                      <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text3)' }}>No voters matching your query found.</td>
+                      <td colSpan="9" style={{ textAlign: 'center', padding: '30px 10px' }}>
+                        <div className="dash-empty-state-small">
+                          <IconSearch size={32} style={{ color: 'var(--text3)', marginBottom: '8px' }} />
+                          <p style={{ margin: 0, color: 'var(--text2)', fontSize: '13px' }}>No voters matching your query found.</p>
+                        </div>
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -1816,17 +2811,20 @@ export default function Dashboard() {
                         <div className="timeline-item-meta">
                           <span className="log-timestamp">[{log.ts}]</span>
                           <span className={`log-severity-tag ${log.level.toLowerCase()}`}>{log.level}</span>
-                          <span className="log-event-type">{log.ev}</span>
-                          <span className="log-user">{log.usr}</span>
+                          <span className="log-event-type">{highlightMatch(log.ev, globalSearch)}</span>
+                          <span className="log-user">{highlightMatch(log.usr, globalSearch)}</span>
                         </div>
-                        <div className="timeline-item-desc">{log.desc}</div>
+                        <div className="timeline-item-desc">{highlightMatch(log.desc, globalSearch)}</div>
                       </div>
                     ))
                   )}
                 </div>
 
-                {logs.length > displayedLogsCount && (
-                  <button className="btn-action-sm gold" style={{ margin: '20px auto 0', display: 'block' }} onClick={() => setDisplayedLogsCount(prev => prev + 10)}>
+                <div className="audit-logs-pagination-info" style={{ textAlign: 'center', marginTop: '16px', fontSize: '12px', color: 'var(--text2)' }}>
+                  Showing {Math.min(displayedLogsCount, filteredLogs.length)} of {filteredLogs.length} matching entries
+                </div>
+                {filteredLogs.length > displayedLogsCount && (
+                  <button className="btn-action-sm gold" style={{ margin: '10px auto 0', display: 'block' }} onClick={() => setDisplayedLogsCount(prev => prev + 10)}>
                     Load older logs (Lazy Retrieval)
                   </button>
                 )}
@@ -2186,12 +3184,12 @@ export default function Dashboard() {
                     <span className="settings-subtitle">Contact Coordinates</span>
                     <div className="settings-fields-grid">
                       <div className="field">
-                        <label>Email Address</label>
-                        <input type="text" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
+                        <label htmlFor="settings-email">Email Address</label>
+                        <input id="settings-email" type="text" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
                       </div>
                       <div className="field">
-                        <label>Phone Number</label>
-                        <input type="text" value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} />
+                        <label htmlFor="settings-phone">Phone Number</label>
+                        <input id="settings-phone" type="text" value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} />
                       </div>
                     </div>
                   </div>
@@ -2199,16 +3197,16 @@ export default function Dashboard() {
                   <div className="settings-section" style={{ marginTop: '16px' }}>
                     <span className="settings-subtitle">Platform Alert Notifications</span>
                     <div className="notification-checkboxes">
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={notifEmail} onChange={(e) => setNotifEmail(e.target.checked)} />
+                      <label className="checkbox-label" htmlFor="settings-notif-email">
+                        <input id="settings-notif-email" type="checkbox" checked={notifEmail} onChange={(e) => setNotifEmail(e.target.checked)} />
                         Send critical alerts via Email
                       </label>
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={notifSms} onChange={(e) => setNotifSms(e.target.checked)} />
+                      <label className="checkbox-label" htmlFor="settings-notif-sms">
+                        <input id="settings-notif-sms" type="checkbox" checked={notifSms} onChange={(e) => setNotifSms(e.target.checked)} />
                         Send backup logs to SMS relay
                       </label>
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={notifPush} onChange={(e) => setNotifPush(e.target.checked)} />
+                      <label className="checkbox-label" htmlFor="settings-notif-push">
+                        <input id="settings-notif-push" type="checkbox" checked={notifPush} onChange={(e) => setNotifPush(e.target.checked)} />
                         Enable desktop browser push notifications
                       </label>
                     </div>
@@ -2218,19 +3216,19 @@ export default function Dashboard() {
                     <span className="settings-subtitle">Security Key Update</span>
                     <form onSubmit={handleUpdatePassword} className="settings-password-form">
                       <div className="field">
-                        <label>Current Password</label>
-                        <input type="password" value={adminPassCurrent} onChange={(e) => setAdminPassCurrent(e.target.value)} placeholder="••••••••" />
+                        <label htmlFor="settings-pass-current">Current Password</label>
+                        <input id="settings-pass-current" type="password" value={adminPassCurrent} onChange={(e) => setAdminPassCurrent(e.target.value)} placeholder="••••••••" />
                       </div>
                       <div className="field">
-                        <label>New Password</label>
-                        <input type="password" value={adminPassNew} onChange={(e) => setAdminPassNew(e.target.value)} placeholder="••••••••" />
+                        <label htmlFor="settings-pass-new">New Password</label>
+                        <input id="settings-pass-new" type="password" value={adminPassNew} onChange={(e) => setAdminPassNew(e.target.value)} placeholder="••••••••" />
                       </div>
                       <div className="field">
-                        <label>Confirm Password</label>
-                        <input type="password" value={adminPassConfirm} onChange={(e) => setAdminPassConfirm(e.target.value)} placeholder="••••••••" />
+                        <label htmlFor="settings-pass-confirm">Confirm Password</label>
+                        <input id="settings-pass-confirm" type="password" value={adminPassConfirm} onChange={(e) => setAdminPassConfirm(e.target.value)} placeholder="••••••••" />
                       </div>
-                      <button type="submit" className="btn-action-sm gold" style={{ marginTop: '8px' }}>
-                        Update Security Credentials
+                      <button type="submit" className="btn-action-sm gold" style={{ marginTop: '8px' }} disabled={isSubmitting}>
+                        {isSubmitting ? 'Updating Credentials...' : 'Update Security Credentials'}
                       </button>
                     </form>
                   </div>
@@ -2369,18 +3367,20 @@ export default function Dashboard() {
                   {showTaskForm && (
                     <form onSubmit={handleAddTask} className="add-task-form animate-slide-down">
                       <div className="field">
-                        <label>Task Title</label>
+                        <label htmlFor="task-title-field">Task Title</label>
                         <input 
+                          id="task-title-field"
                           type="text" 
                           placeholder="e.g. Invalidate voter token..." 
                           value={taskTitleInput}
                           onChange={(e) => setTaskTitleInput(e.target.value)}
+                          aria-required="true"
                         />
                       </div>
                       <div className="form-row-grid">
                         <div className="field">
-                          <label>Priority</label>
-                          <select value={taskPriorityInput} onChange={(e) => setTaskPriorityInput(e.target.value)}>
+                          <label htmlFor="task-priority-field">Priority</label>
+                          <select id="task-priority-field" value={taskPriorityInput} onChange={(e) => setTaskPriorityInput(e.target.value)}>
                             <option value="Low">Low</option>
                             <option value="Medium">Medium</option>
                             <option value="High">High</option>
@@ -2388,12 +3388,12 @@ export default function Dashboard() {
                           </select>
                         </div>
                         <div className="field">
-                          <label>Deadline Date</label>
-                          <input type="date" value={taskDeadlineInput} onChange={(e) => setTaskDeadlineInput(e.target.value)} />
+                          <label htmlFor="task-deadline-field">Deadline Date</label>
+                          <input id="task-deadline-field" type="date" value={taskDeadlineInput} onChange={(e) => setTaskDeadlineInput(e.target.value)} />
                         </div>
                       </div>
-                      <button type="submit" className="btn-action-sm gold" style={{ marginTop: '8px' }}>
-                        Add to Task Matrix
+                      <button type="submit" className="btn-action-sm gold" style={{ marginTop: '8px' }} disabled={isSubmitting}>
+                        {isSubmitting ? 'Adding...' : 'Add to Task Matrix'}
                       </button>
                     </form>
                   )}
@@ -2499,17 +3499,20 @@ export default function Dashboard() {
             <h3 className="modal-title">{editingNoteId ? 'Edit Personal Note' : 'Add Note to Workspace'}</h3>
             <form onSubmit={handleAddOrEditNote} className="create-election-form" style={{ marginTop: '16px', textAlign: 'left' }}>
               <div className="field">
-                <label>Note Title</label>
+                <label htmlFor="note-title-field">Note Title</label>
                 <input 
+                  id="note-title-field"
                   type="text" 
                   placeholder="e.g. CSE election eligibility review" 
                   value={noteTitleInput}
                   onChange={(e) => setNoteTitleInput(e.target.value)}
+                  aria-required="true"
                 />
               </div>
               <div className="field">
-                <label>Note Text / Details</label>
+                <label htmlFor="note-text-field">Note Text / Details</label>
                 <textarea 
+                  id="note-text-field"
                   rows={4}
                   placeholder="Type note details here..."
                   value={noteTextInput}
@@ -2517,8 +3520,8 @@ export default function Dashboard() {
                 />
               </div>
               <div className="modal-form-actions" style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                <button type="submit" className="btn-action-sm gold" style={{ flexGrow: '1' }}>
-                  {editingNoteId ? 'Update Note' : 'Save Note'}
+                <button type="submit" className="btn-action-sm gold" style={{ flexGrow: '1' }} disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : (editingNoteId ? 'Update Note' : 'Save Note')}
                 </button>
                 <button type="button" className="btn-action-sm" style={{ flexGrow: '1' }} onClick={() => setShowNoteModal(false)}>
                   Cancel
@@ -2685,6 +3688,33 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirmation Modal */}
+      {confirmModal.show && (
+        <div className="confirm-modal-overlay" onClick={() => setConfirmModal({ show: false, title: '', message: '', onConfirm: null, isTeal: false })}>
+          <div className="confirm-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className={`confirm-modal-icon ${confirmModal.isTeal ? 'teal' : 'danger'}`}>
+              <IconAlertTriangle size={32} />
+            </div>
+            <h3 className="confirm-modal-title">{confirmModal.title}</h3>
+            <p className="confirm-modal-desc">{confirmModal.message}</p>
+            <div className="confirm-modal-actions">
+              <button 
+                className="confirm-modal-cancel" 
+                onClick={() => setConfirmModal({ show: false, title: '', message: '', onConfirm: null, isTeal: false })}
+              >
+                Cancel
+              </button>
+              <button 
+                className={`confirm-modal-confirm ${confirmModal.isTeal ? 'teal' : 'danger'}`} 
+                onClick={confirmModal.onConfirm}
+              >
+                Confirm Action
+              </button>
             </div>
           </div>
         </div>

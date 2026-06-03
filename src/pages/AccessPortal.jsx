@@ -45,6 +45,7 @@ export default function AccessPortal() {
             className="portal-card card-voter"
             to="/voter-auth"
             spotlightColor="rgba(105, 241, 196, 0.18)"
+            aria-label="Access voter page. Login, register, and cast ballots."
           >
             <div className="card-icon-wrap">
               <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /><path d="M9 11l-2 10 5-3 5 3-2-10" strokeDasharray="1 0" /></svg>
@@ -70,6 +71,7 @@ export default function AccessPortal() {
             className="portal-card card-admin"
             to="/admin-auth"
             spotlightColor="rgba(246, 194, 94, 0.2)"
+            aria-label="Access administrator portal. Admin session login for secure governance."
           >
             <div className="card-icon-wrap">
               <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M9 12l2 2 4-4" /></svg>
@@ -95,6 +97,7 @@ export default function AccessPortal() {
             className="portal-card card-learn"
             to="/"
             spotlightColor="rgba(165, 180, 252, 0.16)"
+            aria-label="Learn more about the VoteGuard platform."
           >
             <div className="card-icon-wrap">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>

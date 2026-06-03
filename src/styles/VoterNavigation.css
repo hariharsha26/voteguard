@@ -468,7 +468,7 @@
   border-top: 1px solid var(--border);
   z-index: 1000;
   grid-template-columns: repeat(6, 1fr);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 8px);
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.03);
 }
 

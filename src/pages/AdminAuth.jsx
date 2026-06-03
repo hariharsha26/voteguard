@@ -5,6 +5,7 @@ import OtpInput from '../components/OtpInput';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/AdminAuth.css';
 import { IconDeviceMobile, IconShield, IconClipboardList, IconBolt, IconLock, IconMail } from '@tabler/icons-react';
+import { supabase } from '../lib/supabaseClient';
 
 export default function AdminAuth() {
   const [view, setView] = useState('login'); // 'login' | 'otp-channel' | 'otp-enter'
@@ -64,16 +65,50 @@ export default function AdminAuth() {
     }
   };
 
-  const handleLoginSubmit = (e) => {
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
     if (locked) return;
 
-    if (adminId.trim() === 'VGADM001' && adminPass === 'admin123') {
-      setView('otp-channel');
-      return;
-    }
+    try {
+      // 1. Look up email by admin id in super_admins table
+      const { data: adminRecord, error: lookupError } = await supabase
+        .from('super_admins')
+        .select('email')
+        .eq('admin_id', adminId.trim().toUpperCase())
+        .single();
 
-    // Handle invalid attempts
+      if (lookupError || !adminRecord) {
+        handleFail();
+        return;
+      }
+
+      // 2. Sign in with password using retrieved email
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: adminRecord.email,
+        password: adminPass,
+      });
+
+      if (authError || !authData.user) {
+        handleFail();
+        return;
+      }
+
+      // 3. Verify user metadata or app metadata has the 'super_admin' role
+      const isAdmin = authData.user?.app_metadata?.role === 'super_admin';
+
+      if (!isAdmin) {
+        await supabase.auth.signOut();
+        handleFail();
+        return;
+      }
+
+      setView('otp-channel');
+    } catch (err) {
+      handleFail();
+    }
+  };
+
+  const handleFail = () => {
     const newFailCount = failCount + 1;
     setFailCount(newFailCount);
     setInputErrors(true);
@@ -88,20 +123,51 @@ export default function AdminAuth() {
     }
   };
 
-  const handleSendOTP = (e) => {
+  const [debugOtpCode, setDebugOtpCode] = useState('');
+  const [otpInputCode, setOtpInputCode] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+
+  const handleSendOTP = async (e) => {
     e.preventDefault();
-    setOtpSent(true);
-    setOtpTimer(300); // Reset timer
-    setTimeout(() => {
+    setVerificationError('');
+    try {
+      const { data, error: otpError } = await supabase.rpc('generate_login_otp');
+      if (otpError) {
+        setVerificationError(otpError.message);
+        return;
+      }
+
+      const { debug_otp } = data[0] || {};
+      if (debug_otp) {
+        setDebugOtpCode(debug_otp);
+      }
+
+      setOtpSent(true);
+      setOtpTimer(300); // Reset timer
       setView('otp-enter');
-    }, 700);
+    } catch (err) {
+      setVerificationError('Failed to generate secure OTP.');
+    }
   };
 
-  const handleVerifyOTP = (e) => {
+  const handleVerifyOTP = async (e) => {
     e.preventDefault();
-    // Simulate successful login
-    alert('Two-Factor Authentication Verified! Redirecting to Dashboard.');
-    navigate('/dashboard');
+    setVerificationError('');
+    try {
+      const { error: verifyError } = await supabase.rpc('verify_login_otp', {
+        p_otp_code: otpInputCode
+      });
+
+      if (verifyError) {
+        setVerificationError(verifyError.message);
+        return;
+      }
+
+      alert('Two-Factor Authentication Verified! Redirecting to Dashboard.');
+      navigate('/dashboard');
+    } catch (err) {
+      setVerificationError('Failed to verify authentication integrity.');
+    }
   };
 
   const formatOtpTimer = (secs) => {
@@ -256,11 +322,12 @@ export default function AdminAuth() {
                 )}
 
                 <div className="field">
-                  <label>
+                  <label htmlFor="admin-id-field">
                     ADMIN ID
                     <span className="field-hint">Exactly 8 characters</span>
                   </label>
                   <input 
+                    id="admin-id-field"
                     type="text" 
                     placeholder="VGADM001" 
                     maxLength={8} 
@@ -268,20 +335,23 @@ export default function AdminAuth() {
                     onChange={handleAdminIdChange}
                     className={inputErrors ? 'error' : ''}
                     disabled={locked}
+                    aria-required="true"
                   />
                   <div className={`char-count ${adminId.length === 8 ? 'ok' : ''}`}>
                     {adminId.length} / 8
                   </div>
                 </div>
                 <div className="field">
-                  <label>PASSWORD</label>
+                  <label htmlFor="admin-pass-field">PASSWORD</label>
                   <input 
+                    id="admin-pass-field"
                     type="password" 
                     placeholder="Enter admin password"
                     value={adminPass}
                     onChange={(e) => setAdminPass(e.target.value)}
                     className={inputErrors ? 'error' : ''}
                     disabled={locked}
+                    aria-required="true"
                   />
                 </div>
 
@@ -354,10 +424,17 @@ export default function AdminAuth() {
                   Expires in <span style={{ color: 'var(--gold)', fontFamily: 'var(--mono)' }}>{formatOtpTimer(otpTimer)}</span>
                 </div>
 
-                <OtpInput />
+                {verificationError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{verificationError}</div>}
+                {debugOtpCode && (
+                  <div className="info-banner show" style={{ marginBottom: 16, padding: '10px', background: 'rgba(212,168,67,0.1)', border: '1px solid rgba(212,168,67,0.3)', borderRadius: '6px', fontSize: '12.5px', color: 'var(--gold)', fontWeight: '600', textAlign: 'center' }}>
+                    Development Mode: Use verification code <strong>{debugOtpCode}</strong>
+                  </div>
+                )}
 
-                <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text3)', marginBottom: '18px' }}>
-                  Didn't receive it? <span style={{ color: 'var(--gold)', cursor: 'pointer' }}>Resend code</span>
+                <OtpInput focusColor="gold" onChange={setOtpInputCode} />
+
+                <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text3)', marginBottom: '18px', marginTop: '16px' }}>
+                  Didn't receive it? <span style={{ color: 'var(--gold)', cursor: 'pointer' }} onClick={handleSendOTP}>Resend code</span>
                 </div>
 
                 <button className="btn-main gold" onClick={handleVerifyOTP}>Verify &amp; Login</button>

@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useState, useCallback } from 'react';
 
 /**
  * Reusable OTP code input — 6 single-digit fields with:
@@ -8,28 +8,39 @@ import { useRef, useCallback } from 'react';
  *
  * @param {{ length?: number, focusColor?: string, className?: string }} props
  */
-export default function OtpInput({ length = 6, focusColor = 'teal', className = '' }) {
+export default function OtpInput({ length = 6, focusColor = 'teal', className = '', onChange }) {
   const inputsRef = useRef([]);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+
+  const triggerChange = useCallback(() => {
+    if (onChange) {
+      const code = inputsRef.current.map(inp => inp?.value || '').join('');
+      onChange(code);
+    }
+  }, [onChange]);
 
   const handleInput = useCallback((e, index) => {
     const value = e.target.value;
     if (value.length === 1 && index < length - 1) {
       inputsRef.current[index + 1]?.focus();
     }
-  }, [length]);
+    triggerChange();
+  }, [length, triggerChange]);
 
   const handleKeyDown = useCallback((e, index) => {
     if (e.key === 'Backspace' && !e.target.value && index > 0) {
       inputsRef.current[index - 1]?.focus();
     }
-  }, []);
+    // Delay to let the input value clear before triggering change
+    setTimeout(triggerChange, 0);
+  }, [triggerChange]);
 
   const handlePaste = useCallback((e) => {
     e.preventDefault();
     const digits = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, length);
     inputsRef.current.forEach((inp, j) => {
-      if (inp && digits[j]) {
-        inp.value = digits[j];
+      if (inp) {
+        inp.value = digits[j] || '';
       }
     });
     // Focus the last filled input or the next empty
@@ -37,11 +48,10 @@ export default function OtpInput({ length = 6, focusColor = 'teal', className = 
     if (lastIdx >= 0) {
       inputsRef.current[lastIdx]?.focus();
     }
-  }, [length]);
+    triggerChange();
+  }, [length, triggerChange]);
 
-  const focusStyle = focusColor === 'gold'
-    ? { borderColor: 'rgba(212,168,67,0.3)', background: 'rgba(212,168,67,0.04)' }
-    : { borderColor: 'var(--teal3)', background: 'rgba(74,157,143,0.05)' };
+  const focusClass = focusColor === 'gold' ? 'otp-focus-gold' : 'otp-focus-teal';
 
   return (
     <div className={`otp-wrap ${className}`}>
@@ -50,14 +60,16 @@ export default function OtpInput({ length = 6, focusColor = 'teal', className = 
           key={i}
           ref={(el) => (inputsRef.current[i] = el)}
           maxLength={1}
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="one-time-code"
+          aria-label={`Digit ${i + 1} of ${length}`}
+          className={focusedIndex === i ? focusClass : ''}
           onInput={(e) => handleInput(e, i)}
           onKeyDown={(e) => handleKeyDown(e, i)}
-          onPaste={(e) => handlePaste(e, i)}
-          onFocus={(e) => Object.assign(e.target.style, focusStyle)}
-          onBlur={(e) => {
-            e.target.style.borderColor = '';
-            e.target.style.background = '';
-          }}
+          onPaste={(e) => handlePaste(e)}
+          onFocus={() => setFocusedIndex(i)}
+          onBlur={() => setFocusedIndex(-1)}
         />
       ))}
     </div>

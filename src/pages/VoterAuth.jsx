@@ -1,26 +1,276 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import LogoMark from '../components/LogoMark';
 import OtpInput from '../components/OtpInput';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/voter-auth.css';
 import { IconMail, IconDeviceMobile } from '@tabler/icons-react';
+import { supabase } from '../lib/supabaseClient';
 
 export default function VoterAuth() {
   const [view, setView] = useState('login'); // 'login' | 'register' | 'otp' | 'forgot'
   const [otpChannel, setOtpChannel] = useState('email'); // 'email' | 'phone'
-  const [otpSent, setOtpSent] = useState(false);
+  const [otpState, setOtpState] = useState('idle'); // 'idle' | 'sending' | 'sent' | 'verifying' | 'success'
+  const [otpProgressMessage, setOtpProgressMessage] = useState('');
+  
+  // Registration States
+  const [regFullName, setRegFullName] = useState('');
+  const [regRollNumber, setRegRollNumber] = useState('');
+  const [regDept, setRegDept] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
+  const [registerError, setRegisterError] = useState('');
+  const [registerLoading, setRegisterLoading] = useState(false);
+
+  // Login States
+  const [loginRollNumber, setLoginRollNumber] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // OTP Verification States
+  const [otpInputCode, setOtpInputCode] = useState('');
+  const [debugOtpCode, setDebugOtpCode] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+
+  // Forgot/Reset Password States
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+
   const navigate = useNavigate();
 
-  const handleSendOTP = (e) => {
-    e.preventDefault();
-    setOtpSent(true);
+  useEffect(() => {
+    // Listen for password recovery event
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setView('reset');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogin = async (e) => {
+    if (e) e.preventDefault();
+    setLoginError('');
+    if (!loginRollNumber || !loginPassword) {
+      setLoginError('Please enter both Roll Number and Password.');
+      return;
+    }
+
+    setLoginLoading(true);
+    try {
+      // 1. Look up email by roll number in voters table
+      const { data: voter, error: lookupError } = await supabase
+        .from('voters')
+        .select('email')
+        .eq('roll_number', loginRollNumber.trim().toUpperCase())
+        .single();
+
+      if (lookupError || !voter) {
+        setLoginError('Invalid Roll Number or Password.');
+        setLoginLoading(false);
+        return;
+      }
+
+      // 2. Sign in with password using retrieved email
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: voter.email,
+        password: loginPassword,
+      });
+
+      if (authError) {
+        setLoginError('Invalid Roll Number or Password.');
+        setLoginLoading(false);
+        return;
+      }
+
+      setView('otp');
+      setOtpState('idle');
+    } catch (err) {
+      setLoginError('An unexpected authentication error occurred.');
+    } finally {
+      setLoginLoading(false);
+    }
   };
 
-  const handleVerifyOTP = (e) => {
-    e.preventDefault();
-    alert('Voter Authentication Successful! Redirecting to Voter Cockpit.');
-    navigate('/voter');
+  const handleRegister = async (e) => {
+    if (e) e.preventDefault();
+    setRegisterError('');
+    if (!regFullName || !regRollNumber || !regDept || !regEmail || !regPassword) {
+      setRegisterError('Please fill out all required fields.');
+      return;
+    }
+    if (regPassword !== regConfirmPassword) {
+      setRegisterError('Passwords do not match.');
+      return;
+    }
+
+    setRegisterLoading(true);
+    try {
+      // Create user and profile via DB triggers
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: regEmail.trim(),
+        password: regPassword,
+        options: {
+          data: {
+            roll_number: regRollNumber.trim().toUpperCase(),
+            full_name: regFullName.trim(),
+            department: regDept.trim().toUpperCase(),
+            phone_number: regPhone.trim()
+          }
+        }
+      });
+
+      if (signUpError) {
+        setRegisterError(signUpError.message);
+        setRegisterLoading(false);
+        return;
+      }
+
+      if (!data.user) {
+        setRegisterError('Registration failed. Try again.');
+        setRegisterLoading(false);
+        return;
+      }
+
+      setView('otp');
+      setOtpState('idle');
+    } catch (err) {
+      setRegisterError('An unexpected registration error occurred.');
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
+
+  const handleSendOTP = async (e) => {
+    if (e) e.preventDefault();
+    setVerificationError('');
+    setOtpState('sending');
+    setOtpProgressMessage('Preparing secure verification channel...');
+
+    try {
+      const { data, error: otpError } = await supabase.rpc('generate_login_otp');
+
+      if (otpError) {
+        setOtpState('idle');
+        setVerificationError(otpError.message);
+        return;
+      }
+
+      const { debug_otp } = data[0] || {};
+      if (debug_otp) {
+        setDebugOtpCode(debug_otp);
+      }
+
+      setOtpState('sent');
+    } catch (err) {
+      setOtpState('idle');
+      setVerificationError('Failed to dispatch verification code.');
+    }
+  };
+
+  const handleVerifyOTP = async (e) => {
+    if (e) e.preventDefault();
+    setVerificationError('');
+    setOtpState('verifying');
+    setOtpProgressMessage('Authenticating verification token...');
+
+    try {
+      const { error: verifyError } = await supabase.rpc('verify_login_otp', {
+        p_otp_code: otpInputCode
+      });
+
+      if (verifyError) {
+        setOtpState('sent');
+        setVerificationError(verifyError.message);
+        return;
+      }
+
+      setOtpState('success');
+      setOtpProgressMessage('Verification successful. Redirecting...');
+      setTimeout(() => {
+        navigate('/voter');
+      }, 1000);
+    } catch (err) {
+      setOtpState('sent');
+      setVerificationError('Authentication integrity check failed.');
+    }
+  };
+
+  const handleSendRecoveryEmail = async (e) => {
+    if (e) e.preventDefault();
+    setForgotError('');
+    setForgotSuccess('');
+    if (!forgotEmail) {
+      setForgotError('Please enter your email address.');
+      return;
+    }
+
+    setForgotLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+        redirectTo: window.location.origin + '/voter-auth',
+      });
+
+      if (error) {
+        setForgotError(error.message);
+      } else {
+        setForgotSuccess('Recovery link sent successfully. Please check your email.');
+      }
+    } catch (err) {
+      setForgotError('An unexpected error occurred.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    if (e) e.preventDefault();
+    setResetError('');
+    if (!resetPassword) {
+      setResetError('Please enter a new password.');
+      return;
+    }
+    if (resetPassword !== resetConfirmPassword) {
+      setResetError('Passwords do not match.');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: resetPassword,
+      });
+
+      if (error) {
+        setResetError(error.message);
+      } else {
+        setResetSuccess(true);
+        setTimeout(() => {
+          setView('login');
+          setResetSuccess(false);
+          setResetPassword('');
+          setResetConfirmPassword('');
+        }, 3000);
+      }
+    } catch (err) {
+      setResetError('Failed to reset password.');
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   return (
@@ -138,20 +388,41 @@ export default function VoterAuth() {
                   <button className="tab-btn" onClick={() => setView('register')}>Register</button>
                 </div>
 
+                {loginError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{loginError}</div>}
                 <div className="field">
-                  <label>STUDENT ID / USER ID</label>
-                  <input type="text" placeholder="e.g. STU2024001"/>
+                  <label htmlFor="student-id-input">STUDENT ID / ROLL NUMBER</label>
+                  <input 
+                    id="student-id-input" 
+                    type="text" 
+                    placeholder="e.g. 21CS001" 
+                    autoComplete="username" 
+                    aria-required="true" 
+                    value={loginRollNumber}
+                    onChange={(e) => setLoginRollNumber(e.target.value)}
+                    disabled={loginLoading}
+                  />
                 </div>
                 <div className="field">
-                  <label>PASSWORD</label>
-                  <input type="password" placeholder="Enter your password"/>
+                  <label htmlFor="password-input">PASSWORD</label>
+                  <input 
+                    id="password-input" 
+                    type="password" 
+                    placeholder="Enter your password" 
+                    autoComplete="current-password" 
+                    aria-required="true" 
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    disabled={loginLoading}
+                  />
                 </div>
                 <div className="field-check">
-                  <label className="check-label"><input type="checkbox"/> Remember me</label>
+                  <label className="check-label"><input type="checkbox" /> Remember me</label>
                   <span className="link-sm" onClick={() => setView('forgot')}>Forgot Password?</span>
                 </div>
-                <button className="btn-main" onClick={() => setView('otp')}>Login</button>
-                <button className="btn-ghost" onClick={() => setView('register')}>Register Instead</button>
+                <button className="btn-main" onClick={handleLogin} disabled={loginLoading}>
+                  {loginLoading ? 'Authenticating...' : 'Login'}
+                </button>
+                <button className="btn-ghost" onClick={() => setView('register')} disabled={loginLoading}>Register Instead</button>
 
                 <div className="sec-indicators">
                   <div className="sec-ind"><div className="sec-ind-dot"></div>Secure Auth</div>
@@ -168,19 +439,44 @@ export default function VoterAuth() {
                 <div className="card-title">Create Voter Account</div>
                 <div className="card-sub" style={{ marginBottom: '24px' }}>Register to participate in your institution's elections</div>
 
-                <div className="field"><label>FULL NAME</label><input type="text" placeholder="Your full name"/></div>
-                <div className="field-row">
-                  <div className="field"><label>ROLL NUMBER</label><input type="text" placeholder="e.g. 21CS042"/></div>
-                  <div className="field"><label>DEPARTMENT</label><input type="text" placeholder="e.g. CSE"/></div>
+                {registerError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{registerError}</div>}
+
+                <div className="field">
+                  <label htmlFor="fullname-input">FULL NAME</label>
+                  <input id="fullname-input" type="text" placeholder="Your full name" autoComplete="name" aria-required="true" value={regFullName} onChange={(e) => setRegFullName(e.target.value)} disabled={registerLoading} />
                 </div>
-                <div className="field"><label>EMAIL ADDRESS</label><input type="email" placeholder="you@institution.edu"/></div>
                 <div className="field-row">
-                  <div className="field"><label>PHONE NUMBER</label><input type="tel" placeholder="+91 9XXXXXXXXX"/></div>
+                  <div className="field">
+                    <label htmlFor="roll-number-input">ROLL NUMBER</label>
+                    <input id="roll-number-input" type="text" placeholder="e.g. 21CS042" aria-required="true" value={regRollNumber} onChange={(e) => setRegRollNumber(e.target.value)} disabled={registerLoading} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="department-input">DEPARTMENT</label>
+                    <input id="department-input" type="text" placeholder="e.g. CSE" aria-required="true" value={regDept} onChange={(e) => setRegDept(e.target.value)} disabled={registerLoading} />
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="email-input">EMAIL ADDRESS</label>
+                  <input id="email-input" type="email" placeholder="you@institution.edu" autoComplete="email" aria-required="true" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} disabled={registerLoading} />
+                </div>
+                <div className="field-row">
+                  <div className="field">
+                    <label htmlFor="phone-input">PHONE NUMBER</label>
+                    <input id="phone-input" type="tel" placeholder="+91 9XXXXXXXXX" autoComplete="tel" value={regPhone} onChange={(e) => setRegPhone(e.target.value)} disabled={registerLoading} />
+                  </div>
                   <div className="field" style={{ flex: 0 }}></div>
                 </div>
-                <div className="field"><label>PASSWORD</label><input type="password" placeholder="Create a strong password"/></div>
-                <div className="field"><label>CONFIRM PASSWORD</label><input type="password" placeholder="Repeat your password"/></div>
-                <button className="btn-main" onClick={() => setView('otp')}>Register</button>
+                <div className="field">
+                  <label htmlFor="password-create-input">PASSWORD</label>
+                  <input id="password-create-input" type="password" placeholder="Create a strong password" autoComplete="new-password" aria-required="true" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} disabled={registerLoading} />
+                </div>
+                <div className="field">
+                  <label htmlFor="password-confirm-input">CONFIRM PASSWORD</label>
+                  <input id="password-confirm-input" type="password" placeholder="Repeat your password" autoComplete="new-password" aria-required="true" value={regConfirmPassword} onChange={(e) => setRegConfirmPassword(e.target.value)} disabled={registerLoading} />
+                </div>
+                <button className="btn-main" onClick={handleRegister} disabled={registerLoading}>
+                  {registerLoading ? 'Creating Account...' : 'Register'}
+                </button>
                 <button className="btn-ghost" onClick={() => setView('login')}>Already have an account? Login</button>
               </div>
             )}
@@ -188,32 +484,88 @@ export default function VoterAuth() {
             {/* OTP VIEW */}
             {view === 'otp' && (
               <div className="form-view active">
-                <div className="back-link" onClick={() => setView('login')}><span className="back-arrow">←</span> Back</div>
-                <div className="card-title">Verify Your Identity</div>
-                <div className="card-sub" style={{ marginBottom: '24px' }}>A one-time password will be sent to verify you</div>
+                {/* 1. IDLE / CHANNEL SELECT STATE */}
+                {otpState === 'idle' && (
+                  <>
+                    <div className="back-link" onClick={() => setView('login')}><span className="back-arrow">←</span> Back</div>
+                    <div className="card-title">Identity Verification</div>
+                    <div className="card-sub" style={{ marginBottom: '24px' }}>Choose your preferred channel to receive a secure one-time passcode (OTP).</div>
 
-                <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '12px' }}>Send code to:</div>
-                <div className="otp-channel">
-                  <div className={`otp-opt ${otpChannel === 'email' ? 'sel' : ''}`} onClick={() => setOtpChannel('email')}><IconMail size={18} style={{marginRight: 8}}/> Email</div>
-                  <div className={`otp-opt ${otpChannel === 'phone' ? 'sel' : ''}`} onClick={() => setOtpChannel('phone')}><IconDeviceMobile size={18} style={{marginRight: 8}}/> Phone</div>
-                </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px', fontWeight: '600' }}>Select Verification Channel</div>
+                    <div className="otp-channel" style={{ marginBottom: '24px' }}>
+                      <div className={`otp-opt ${otpChannel === 'email' ? 'sel' : ''}`} onClick={() => setOtpChannel('email')}>
+                        <IconMail size={18} style={{marginRight: 8}}/> Email OTP
+                      </div>
+                      <div className={`otp-opt ${otpChannel === 'phone' ? 'sel' : ''}`} onClick={() => setOtpChannel('phone')}>
+                        <IconDeviceMobile size={18} style={{marginRight: 8}}/> Mobile OTP
+                      </div>
+                    </div>
 
-                <button 
-                  className="btn-ghost" 
-                  style={{ marginBottom: '20px', borderColor: otpSent ? 'var(--teal3)' : '', color: otpSent ? 'var(--teal)' : '' }} 
-                  onClick={handleSendOTP}
-                >
-                  {otpSent ? 'Code Sent ✓' : 'Send OTP'}
-                </button>
+                    <button className="btn-main" onClick={handleSendOTP}>Send Verification Code</button>
+                  </>
+                )}
 
-                <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '12px' }}>Enter 6-digit code</div>
-                <OtpInput />
-                
-                <div className="otp-sent-info">Didn't receive it? <span className="link-sm">Resend</span></div>
-                <button className="btn-main" style={{ marginTop: '8px' }} onClick={handleVerifyOTP}>Verify OTP</button>
-                <div className="sec-indicators">
-                  <div className="sec-ind"><div className="sec-ind-dot"></div>Secure Auth</div>
-                  <div className="sec-ind"><div className="sec-ind-dot"></div>Audit Protected</div>
+                {/* 2. SENDING STATE OVERLAY */}
+                {otpState === 'sending' && (
+                  <div style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                    <div className="secure-loading-spinner" />
+                    <div style={{ fontSize: '15px', fontWeight: '650', color: 'var(--text)' }}>Contacting Dispatcher</div>
+                    <div style={{ fontSize: '12.5px', color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>{otpProgressMessage}</div>
+                  </div>
+                )}
+
+                {/* 3. CODE ENTRY STATE */}
+                {otpState === 'sent' && (
+                  <>
+                    <div className="back-link" onClick={() => setOtpState('idle')}><span className="back-arrow">←</span> Change Channel</div>
+                    <div className="card-title">Enter Security Code</div>
+                    <div className="card-sub" style={{ marginBottom: '24px' }}>
+                      A 6-digit verification code has been sent to your registered {otpChannel === 'email' ? 'email address' : 'mobile phone'}.
+                    </div>
+
+                    {verificationError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{verificationError}</div>}
+                    {debugOtpCode && (
+                      <div className="info-banner show" style={{ marginBottom: 16, padding: '10px', background: 'rgba(74, 157, 143, 0.1)', border: '1px solid rgba(74, 157, 143, 0.3)', borderRadius: '6px', fontSize: '12.5px', color: 'var(--teal)', fontWeight: '600', textAlign: 'center' }}>
+                        Development Mode: Use verification code <strong>{debugOtpCode}</strong>
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px', fontWeight: '600' }}>Enter Verification Code</div>
+                    <OtpInput onChange={setOtpInputCode} />
+                    
+                    <div className="otp-sent-info" style={{ marginTop: '20px', fontSize: '12px', color: 'var(--text3)' }}>
+                      Didn't receive it? <span className="link-sm" onClick={() => handleSendOTP()} style={{ color: 'var(--teal)', cursor: 'pointer', fontWeight: '600' }}>Resend Code</span>
+                    </div>
+                    <button className="btn-main" style={{ marginTop: '16px' }} onClick={handleVerifyOTP}>Verify &amp; Authorize Session</button>
+                  </>
+                )}
+
+                {/* 4. VERIFYING STATE OVERLAY */}
+                {otpState === 'verifying' && (
+                  <div style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                    <div className="secure-loading-spinner" />
+                    <div style={{ fontSize: '15px', fontWeight: '650', color: 'var(--text)' }}>Verifying Integrity</div>
+                    <div style={{ fontSize: '12.5px', color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>{otpProgressMessage}</div>
+                  </div>
+                )}
+
+                {/* 5. SUCCESS STATE OVERLAY */}
+                {otpState === 'success' && (
+                  <div style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                    <div className="secure-success-checkmark animate-scale-up">
+                      <svg viewBox="0 0 52 52" style={{ width: '48px', height: '48px' }}>
+                        <circle cx="26" cy="26" r="25" fill="none" stroke="var(--teal)" strokeWidth="3" />
+                        <path fill="none" stroke="var(--teal)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
+                      </svg>
+                    </div>
+                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text)' }}>Session Authorized</div>
+                    <div style={{ fontSize: '13px', color: 'var(--text2)' }}>{otpProgressMessage}</div>
+                  </div>
+                )}
+
+                <div className="sec-indicators" style={{ marginTop: '24px' }}>
+                  <div className="sec-ind"><div className="sec-ind-dot"></div>Secure Two-Factor</div>
+                  <div className="sec-ind"><div className="sec-ind-dot"></div>Anti-Tamper Session</div>
                 </div>
               </div>
             )}
@@ -223,13 +575,65 @@ export default function VoterAuth() {
               <div className="form-view active">
                 <div className="back-link" onClick={() => setView('login')}><span className="back-arrow">←</span> Back to Login</div>
                 <div className="card-title">Reset Password</div>
-                <div className="card-sub" style={{ marginBottom: '24px' }}>Enter your email or user ID to receive a recovery link</div>
+                <div className="card-sub" style={{ marginBottom: '24px' }}>Enter your email to receive a recovery link</div>
+                {forgotError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{forgotError}</div>}
+                {forgotSuccess && <div className="info-banner show" style={{ marginBottom: 12, fontSize: '13.5px', color: 'var(--teal)', background: 'rgba(74,157,143,0.1)', border: '1px solid rgba(74,157,143,0.3)', borderRadius: '6px', padding: '10px', textAlign: 'center' }}>{forgotSuccess}</div>}
                 <div className="field">
-                  <label>EMAIL OR USER ID</label>
-                  <input type="text" placeholder="you@institution.edu or STU2024001"/>
+                  <label htmlFor="recovery-email-input">EMAIL ADDRESS</label>
+                  <input 
+                    id="recovery-email-input" 
+                    type="email" 
+                    placeholder="you@institution.edu" 
+                    autoComplete="username" 
+                    aria-required="true" 
+                    value={forgotEmail} 
+                    onChange={(e) => setForgotEmail(e.target.value)} 
+                    disabled={forgotLoading}
+                  />
                 </div>
-                <button className="btn-main" onClick={(e) => { e.preventDefault(); alert('Recovery link sent to your email.'); setView('login'); }}>Send Recovery Link</button>
+                <button className="btn-main" onClick={handleSendRecoveryEmail} disabled={forgotLoading}>
+                  {forgotLoading ? 'Sending...' : 'Send Recovery Link'}
+                </button>
                 <button className="btn-ghost" onClick={() => setView('login')}>Back to Login</button>
+              </div>
+            )}
+
+            {/* RESET PASSWORD VIEW */}
+            {view === 'reset' && (
+              <div className="form-view active">
+                <div className="card-title">Create New Password</div>
+                <div className="card-sub" style={{ marginBottom: '24px' }}>Please enter a strong new password for your account</div>
+
+                {resetError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{resetError}</div>}
+                {resetSuccess && <div className="info-banner show" style={{ marginBottom: 12, fontSize: '13.5px', color: 'var(--teal)', background: 'rgba(74,157,143,0.1)', border: '1px solid rgba(74,157,143,0.3)', borderRadius: '6px', padding: '10px', textAlign: 'center' }}>Password reset successful. Redirecting to login...</div>}
+
+                <div className="field">
+                  <label htmlFor="reset-password-input">NEW PASSWORD</label>
+                  <input 
+                    id="reset-password-input" 
+                    type="password" 
+                    placeholder="Enter new password" 
+                    value={resetPassword} 
+                    onChange={(e) => setResetPassword(e.target.value)} 
+                    disabled={resetLoading || resetSuccess} 
+                    aria-required="true"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="reset-confirm-input">CONFIRM NEW PASSWORD</label>
+                  <input 
+                    id="reset-confirm-input" 
+                    type="password" 
+                    placeholder="Confirm new password" 
+                    value={resetConfirmPassword} 
+                    onChange={(e) => setResetConfirmPassword(e.target.value)} 
+                    disabled={resetLoading || resetSuccess} 
+                    aria-required="true"
+                  />
+                </div>
+                <button className="btn-main" onClick={handleResetPassword} disabled={resetLoading || resetSuccess}>
+                  {resetLoading ? 'Updating Password...' : 'Update Password'}
+                </button>
               </div>
             )}
 
