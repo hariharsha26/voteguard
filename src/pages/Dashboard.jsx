@@ -6,18 +6,225 @@ import ThemeToggle from '../components/ThemeToggle';
 import CountUpNumber from '../components/ReactBits/CountUpNumber';
 import SpotlightCard from '../components/ReactBits/SpotlightCard';
 import '../styles/Dashboard.css';
-import { IconChartBar, IconBox, IconUsers, IconHeartHandshake, IconTrophy, IconFolder, IconPlug, IconAlertCircle, IconUser, IconBolt, IconBell, IconShield, IconTrendingUp, IconAlertTriangle, IconDeviceFloppy, IconEye, IconPlayerPause, IconPlayerPlay, IconLockOpen, IconPackage, IconInbox, IconCamera, IconPencil, IconRefresh, IconSearch, IconFileDescription, IconScale, IconPlus, IconArchive, IconPin, IconCircleCheck } from '@tabler/icons-react';
+import { IconChartBar, IconBox, IconUsers, IconHeartHandshake, IconTrophy, IconFolder, IconPlug, IconAlertCircle, IconUser, IconBolt, IconBell, IconShield, IconTrendingUp, IconAlertTriangle, IconDeviceFloppy, IconEye, IconEyeOff, IconPlayerPause, IconPlayerPlay, IconLockOpen, IconPackage, IconInbox, IconCamera, IconPencil, IconRefresh, IconSearch, IconFileDescription, IconScale, IconPlus, IconArchive, IconPin, IconCircleCheck } from '@tabler/icons-react';
 import { supabase } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx';
 
 
 export default function Dashboard() {
+
   const [activeTab, setActiveTab] = useState('Dashboard'); // Navigation Tabs
+  const contentRef = useRef(null);
+  const [showSettingsPassCurrent, setShowSettingsPassCurrent] = useState(false);
+  const [showSettingsPassNew, setShowSettingsPassNew] = useState(false);
+  const [showSettingsPassConfirm, setShowSettingsPassConfirm] = useState(false);
   const [time, setTime] = useState(new Date().toLocaleTimeString());
   const navigate = useNavigate();
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [eligibilityElectionId, setEligibilityElectionId] = useState('');
   const [eligibilitySummary, setEligibilitySummary] = useState({ eligible: 0, ineligible: 0, duplicates: 0, conflicts: 0 });
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', onConfirm: null, isTeal: false });
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [previewElection, setPreviewElection] = useState(null);
+  const [inspectedElection, setInspectedElection] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([
+    { id: 1, type: 'critical', text: 'ECE Rep Election Tie Imbalance Identified.', ts: '5 mins ago', read: false },
+    { id: 2, type: 'warning', text: 'SMS Delivery Relay Latency high (1.4s).', ts: '15 mins ago', read: false },
+    { id: 3, type: 'info', text: 'System backup synchronized successfully.', ts: '25 mins ago', read: true },
+    { id: 4, type: 'info', text: 'Student Council President template updated.', ts: '1 hour ago', read: true },
+  ]);
+  const [activeAlerts] = useState([]);
+  const [resolvedAlerts] = useState([
+    { id: 'ALT101', title: 'Database connection pool usage spike', severity: 'warning', date: '2026-06-02 11:15', duration: '14 mins', resolution: 'Auto-scaled connection pools' },
+    { id: 'ALT102', title: 'Email API provider connection timeout', severity: 'critical', date: '2026-06-02 09:22', duration: '3 mins', resolution: 'Switched to primary backup mail route' },
+    { id: 'ALT103', title: 'Voter verification API rate-limit alert', severity: 'warning', date: '2026-06-01 16:40', duration: '30s', resolution: 'Throttled requests dynamically' }
+  ]);
+  const [elections, setElections] = useState([
+    { 
+      id: 'ELC001', 
+      name: 'Student Council President 2026', 
+      description: 'Annual election for the college student council president position.',
+      start: '2026-06-01', 
+      end: '2026-06-03 16:00', 
+      type: 'Public',
+      status: 'Running', 
+      voters: 2500, 
+      votesCast: 1420,
+      draw: false,
+      rules: { branch: 'ALL', rollRange: '1-200', laterals: true },
+      candidates: ['CAND001', 'CAND002']
+    },
+    { 
+      id: 'ELC002', 
+      name: 'CSE Senate Representative Poll', 
+      description: 'Departmental vote for the Computer Science & Engineering Senate representative.',
+      start: '2026-06-01', 
+      end: '2026-06-02 14:00', 
+      type: 'Private',
+      accessCode: 'VG-ACCESS-CR26',
+      status: 'Running', 
+      voters: 350, 
+      votesCast: 290,
+      draw: false,
+      rules: { branch: 'CSE', rollRange: '1-64', laterals: true },
+      candidates: ['CAND003', 'CAND004']
+    },
+    { 
+      id: 'ELC003', 
+      name: 'Alumni Association Board Selection', 
+      description: 'Global poll for alumni board selection.',
+      start: '2026-05-15', 
+      end: '2026-05-17 18:00', 
+      type: 'Public',
+      status: 'Completed', 
+      voters: 3101, 
+      votesCast: 2822,
+      draw: false,
+      rules: { branch: 'ALL', rollRange: 'ALL', laterals: false },
+      candidates: []
+    },
+    { 
+      id: 'ELC004', 
+      name: 'ECE Department Rep 2026', 
+      description: 'Electronics & Communication Engineering department representative vote.',
+      start: '2026-06-01', 
+      end: '2026-06-02 12:00', 
+      type: 'Public',
+      status: 'Completed', 
+      voters: 500, 
+      votesCast: 240,
+      draw: true, // Deadlocked poll for tie-break actions
+      rules: { branch: 'ECE', rollRange: '1-100', laterals: true },
+      candidates: ['CAND005', 'CAND006']
+    }
+  ]);
+  const [candidates, setCandidates] = useState([
+    { id: 'CAND001', name: 'Aarav Mehta', dept: 'CSE', rollNo: '21CS001', manifesto: 'Empowering students through open source and tech workspace transparency.', electionId: 'ELC001', votes: 820 },
+    { id: 'CAND002', name: 'Priya Sharma', dept: 'CSE', rollNo: '21CS042', manifesto: 'Fostering inclusivity and cross-department innovation.', electionId: 'ELC001', votes: 600 },
+    { id: 'CAND003', name: 'Vikram Aditya', dept: 'IT', rollNo: '21IT054', manifesto: 'Streamlining campus infrastructure and network capabilities.', electionId: 'ELC002', votes: 200 },
+    { id: 'CAND004', name: 'Ananya Iyer', dept: 'CSE', rollNo: '21CS102', manifesto: 'Improving student wellness and direct representation platforms.', electionId: 'ELC002', votes: 90 },
+    { id: 'CAND005', name: 'Rohan Verma', dept: 'ECE', rollNo: '22EC015', manifesto: 'Strengthening robotics and automation facilities.', electionId: 'ELC004', votes: 120 },
+    { id: 'CAND006', name: 'Aditya Nair', dept: 'ME', rollNo: '23ME089', manifesto: 'Developing green energy projects on campus.', electionId: 'ELC004', votes: 120 }
+  ]);
+  const [voters, setVoters] = useState([
+    { roll: '21CS001', name: 'Aarav Mehta', dept: 'CSE', userCreatedId: 'aarav_mehta', systemId: 'SYS-VOT-9982', status: 'Voted', eligible: true },
+    { roll: '21CS042', name: 'Priya Sharma', dept: 'CSE', userCreatedId: 'priya_s', systemId: 'SYS-VOT-1049', status: 'Token Dispatched - Not Voted', eligible: true },
+    { roll: '22EC015', name: 'Rohan Verma', dept: 'ECE', userCreatedId: 'rohan_v', systemId: 'SYS-VOT-4932', status: 'Registered', eligible: true },
+    { roll: '23ME089', name: 'Aditya Nair', dept: 'ME', userCreatedId: 'aditya_n', systemId: 'SYS-VOT-8821', status: 'Registered', eligible: true },
+    { roll: '21CS102', name: 'Ananya Iyer', dept: 'CSE', userCreatedId: 'ananya_i', systemId: 'SYS-VOT-3042', status: 'Voted', eligible: true },
+    { roll: '22EC144', name: 'Kabir Kapoor', dept: 'ECE', userCreatedId: 'kabir_k', systemId: 'SYS-VOT-1040', status: 'Registered', eligible: true },
+    { roll: '23EE005', name: 'Sneha Patel', dept: 'EE', userCreatedId: 'sneha_p', systemId: 'SYS-VOT-2041', status: 'Registered', eligible: false },
+    { roll: '21IT054', name: 'Vikram Singh', dept: 'IT', userCreatedId: 'vikram_s', systemId: 'SYS-VOT-4903', status: 'Voted', eligible: true },
+  ]);
+  const [selectedVoters, setSelectedVoters] = useState([]);
+  const [logs, setLogs] = useState([
+    { ts: '14:28:40', ev: 'CONFIG_UPDATE', usr: 'admin', desc: 'saved configuration setup', status: 'ok', level: 'INFO' },
+    { ts: '14:29:01', ev: 'ELECTION_START', usr: 'admin', desc: 'activated election ELC002', status: 'ok', level: 'INFO' },
+    { ts: '14:29:44', ev: 'OTP_VERIFY', usr: '21CS001', desc: 'MFA verified (email channel)', status: 'ok', level: 'INFO' },
+    { ts: '14:30:12', ev: 'RATE_LIMIT', usr: '23EE005', desc: 'Repeated verification failure (lockout active)', status: 'warn', level: 'WARNING' },
+    { ts: '14:31:30', ev: 'ELIGIBILITY', usr: '22EC015', desc: 'Eligibility check completed', status: 'ok', level: 'INFO' },
+    { ts: '14:31:55', ev: 'OTP_VERIFY', usr: '21IT054', desc: 'MFA verified (SMS channel)', status: 'ok', level: 'INFO' },
+    { ts: '14:31:58', ev: 'TOKEN_GEN', usr: '21IT054', desc: 'Token Generated = TRUE (Token value stripped for security)', status: 'ok', level: 'INFO' },
+    { ts: '14:32:01', ev: 'VOTE_CAST', usr: '21IT054', desc: 'Committing secure anonymous ballot', status: 'ok', level: 'INFO' },
+    { ts: '14:32:15', ev: 'BACKUP_SYNC', usr: 'system', desc: 'Database sync delay detected (14 mins)', status: 'warn', level: 'WARNING' },
+    { ts: '14:33:02', ev: 'ELECTION_TIE', usr: 'system', desc: 'Tie Imbalance Identified in ELC004 (ECE)', status: 'err', level: 'CRITICAL' },
+  ]);
+  const [securityStats, setSecurityStats] = useState({
+    duplicateAttempts: 0,
+    invalidTokens: 3,
+    rateLimitedUsers: 2,
+    blockedRequests: 15
+  });
+  const [adminProfile, setAdminProfile] = useState(null);
+  const [adminBio, setAdminBio] = useState(() => {
+    const saved = localStorage.getItem('vg_admin_bio');
+    return saved !== null ? saved : 'Responsible for election governance, system health observation, and platform operations security within the institution. Managing audit records and whitelists.';
+  });
+  const [adminNotes, setAdminNotes] = useState(() => {
+    const saved = localStorage.getItem('vg_admin_notes');
+    return saved ? JSON.parse(saved) : [
+      { id: 1, title: 'CR Election Eligibility Review', text: 'Remember to review CSE election eligibility list and double-check for lateral entry category entries.', pinned: true, archived: false, date: '2026-06-02 10:30' },
+      { id: 2, title: 'Department Roll Overrides', text: 'Follow up with ECE department coordinator regarding missing lateral roll numbers.', pinned: false, archived: false, date: '2026-06-02 09:15' },
+      { id: 3, title: 'Pre-Closure Audit Compile', text: 'Generate final cryptographic audit report before Student Council election closes at 16:00.', pinned: false, archived: false, date: '2026-06-01 15:45' }
+    ];
+  });
+  const [adminTasks, setAdminTasks] = useState(() => {
+    const saved = localStorage.getItem('vg_admin_tasks');
+    return saved ? JSON.parse(saved) : [
+      { id: 1, title: 'Review CSE Roll Overrides', priority: 'High', deadline: '2026-06-02', completed: false },
+      { id: 2, title: 'Generate ELC003 Archive', priority: 'Medium', deadline: '2026-06-03', completed: true },
+      { id: 3, title: 'Inspect ECE Deadlock Tie-break', priority: 'Critical', deadline: '2026-06-02', completed: false },
+      { id: 4, title: 'Perform Backup Sync check', priority: 'Low', deadline: '2026-06-04', completed: false }
+    ];
+  });
+  const [adminEmail, setAdminEmail] = useState(() => {
+    return localStorage.getItem('vg_admin_email') || 'hariharsha@voteguard.org';
+  });
+  const [adminPhone, setAdminPhone] = useState(() => {
+    return localStorage.getItem('vg_admin_phone') || '+91 98765 43210';
+  });
+  const [notifEmail, setNotifEmail] = useState(true);
+  const [notifSms, setNotifSms] = useState(false);
+  const [notifPush, setNotifPush] = useState(true);
+  const [adminPassCurrent, setAdminPassCurrent] = useState('');
+  const [adminPassNew, setAdminPassNew] = useState('');
+  const [adminPassConfirm, setAdminPassConfirm] = useState('');
+  const [noteSearchQuery, setNoteSearchQuery] = useState('');
+  const [showArchivedNotes, setShowArchivedNotes] = useState(false);
+  const [noteTitleInput, setNoteTitleInput] = useState('');
+  const [noteTextInput, setNoteTextInput] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [taskTitleInput, setTaskTitleInput] = useState('');
+  const [taskPriorityInput, setTaskPriorityInput] = useState('Medium');
+  const [taskDeadlineInput, setTaskDeadlineInput] = useState('2026-06-02');
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [electionTemplates, setElectionTemplates] = useState([
+    { id: 'T_CR', name: 'CR Election Template', description: 'Class Representative vote with standard 1-64 CSE roll index.', rules: { branch: 'CSE', rollRange: '1-64', laterals: true } },
+    { id: 'T_DEPT', name: 'Department Representative Template', description: 'Department wide election template.', rules: { branch: 'ECE', rollRange: '1-100', laterals: true } },
+    { id: 'T_CLUB', name: 'Club President Template', description: 'Presidential poll for societies.', rules: { branch: 'ALL', rollRange: 'ALL', laterals: false } },
+    { id: 'T_SENATE', name: 'Student Senate Template', description: 'College-wide student senate election structure.', rules: { branch: 'ALL', rollRange: '1-200', laterals: true } }
+  ]);
+  const [newElName, setNewElName] = useState('');
+  const [newElDesc, setNewElDesc] = useState('');
+  const [newElStart, setNewElStart] = useState('2026-06-02');
+  const [newElEnd, setNewElEnd] = useState('2026-06-04 17:00');
+  const [newElType, setNewElType] = useState('Public');
+  const [newElAccessCode, setNewElAccessCode] = useState('');
+  const [newElBranch, setNewElBranch] = useState('ALL');
+  const [newElRange, setNewElRange] = useState('1-100');
+  const [newElLaterals, setNewElLaterals] = useState(true);
+  const [excelInputEligible, setExcelInputEligible] = useState('');
+  const [excelInputIneligible, setExcelInputIneligible] = useState('');
+  const [excelValidationLogs, setExcelValidationLogs] = useState([]);
+  const [excelSuccess, setExcelSuccess] = useState(null);
+  const [tokenRecoveryUser, setTokenRecoveryUser] = useState(null);
+  const [recoveryStatusText, setRecoveryStatusText] = useState('');
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [recoveryFinished, setRecoveryFinished] = useState(false);
+  const [candName, setCandName] = useState('');
+  const [candDept, setCandDept] = useState('CSE');
+  const [candRoll, setCandRoll] = useState('');
+  const [candManifesto, setCandManifesto] = useState('');
+  const [candElectionId, setCandElectionId] = useState('ELC001');
+  const [editCandId, setEditCandId] = useState(null);
+  const [displayedLogsCount, setDisplayedLogsCount] = useState(15);
+  const [auditTimeFilterFrom, setAuditTimeFilterFrom] = useState('');
+  const [auditTimeFilterTo, setAuditTimeFilterTo] = useState('');
+  const [auditSeverityFilter, setAuditSeverityFilter] = useState('ALL');
+  const [exportingElectionId, setExportingElectionId] = useState(null);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [signedPdfData, setSignedPdfData] = useState(null);
+  const [simulatedIp, setSimulatedIp] = useState('192.168.1.144');
+  const [simulatedFailures, setSimulatedFailures] = useState(0);
+  const [simulatedCooldown, setSimulatedCooldown] = useState(0);
+  const [simulatedStatus, setSimulatedStatus] = useState('Clean (Zero Delay)');
+  const logEndRef = useRef(null);
 
 
   const fetchDatabaseData = async () => {
@@ -28,6 +235,11 @@ export default function Dashboard() {
         .select('*')
         .order('created_at', { ascending: false });
       if (elError) throw elError;
+
+      // 1b. Fetch election statistics
+      const { data: dbStats } = await supabase
+        .from('election_statistics')
+        .select('*');
 
       // 2. Fetch candidates
       const { data: dbCandidates, error: candError } = await supabase
@@ -63,7 +275,7 @@ export default function Dashboard() {
         .limit(100);
       if (logError) throw logError;
 
-      // 7. Fetch votes (to aggregate candidate counts - RLS will auto-restrict to Completed/Emergency_Stopped elections)
+      // 7. Fetch votes (to aggregate candidate counts - RLS will auto-restrict to Completed/Emergency_Stopped/Draw elections)
       const { data: dbVotes } = await supabase
         .from('votes')
         .select('candidate_id');
@@ -139,6 +351,8 @@ export default function Dashboard() {
           return d.toISOString().substring(0, 10) + ' ' + d.toTimeString().substring(0, 5);
         };
 
+        const stat = (dbStats || []).find(s => s.election_id === el.id);
+
         return {
           id: el.id,
           name: el.election_name,
@@ -148,9 +362,11 @@ export default function Dashboard() {
           type: el.election_type,
           accessCode: el.access_code || '',
           status: el.status,
-          voters: el.election_type === 'Private' ? elEligibleCount : (dbVoters || []).length, // Whitelist count for private, total voters for public
-          votesCast: elVotesCast,
-          draw: false, // We can calculate ties if completed
+          voters: stat ? Number(stat.eligible_voters) : (el.election_type === 'Private' ? elEligibleCount : (dbVoters || []).length),
+          votesCast: stat ? Number(stat.votes_cast) : elVotesCast,
+          draw: el.status === 'Draw / Deadlock',
+          jointWinner: el.joint_winners,
+          winners: el.winners,
           rules: { branch: 'ALL', rollRange: 'ALL', laterals: true },
           candidates: elCands.map(c => c.id)
         };
@@ -226,7 +442,7 @@ export default function Dashboard() {
           .from('verified_sessions')
           .select('verified')
           .eq('session_id', sessionId)
-          .single();
+          .maybeSingle();
 
         if (error || !data || !data.verified) {
           navigate('/admin-auth');
@@ -238,7 +454,7 @@ export default function Dashboard() {
           .from('super_admins')
           .select('*')
           .eq('auth_user_id', session.user.id)
-          .single();
+          .maybeSingle();
 
         if (profile) {
           setAdminProfile(profile);
@@ -250,12 +466,21 @@ export default function Dashboard() {
 
         setCheckingAuth(false);
       } catch (err) {
+        console.error('Auth verification check failed:', err);
         navigate('/admin-auth');
       }
     };
 
     checkAuth();
   }, [navigate]);
+
+  // Tab change smooth scroll to top of content container
+  useEffect(() => {
+    contentRef.current?.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  }, [activeTab]);
 
 
   // Clock ticking effect
@@ -267,18 +492,10 @@ export default function Dashboard() {
   }, []);
 
   // Global Search State (with debouncing support)
-  const [globalSearch, setGlobalSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Mobile sidebar navigation toggle state
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Custom confirmation modal state
-  const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', onConfirm: null, isTeal: false });
-  const [showNoteModal, setShowNoteModal] = useState(false);
-  const [previewElection, setPreviewElection] = useState(null);
-  const [inspectedElection, setInspectedElection] = useState(null);
 
   const triggerConfirm = (title, message, onConfirm, isTeal = false) => {
     setConfirmModal({
@@ -338,183 +555,31 @@ export default function Dashboard() {
   }, [showNoteModal, previewElection, inspectedElection, sidebarOpen, confirmModal.show]);
 
   // Notifications Bell State
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([
-    { id: 1, type: 'critical', text: 'ECE Rep Election Tie Imbalance Identified.', ts: '5 mins ago', read: false },
-    { id: 2, type: 'warning', text: 'SMS Delivery Relay Latency high (1.4s).', ts: '15 mins ago', read: false },
-    { id: 3, type: 'info', text: 'System backup synchronized successfully.', ts: '25 mins ago', read: true },
-    { id: 4, type: 'info', text: 'Student Council President template updated.', ts: '1 hour ago', read: true },
-  ]);
 
   // Active Alerts state (Tab 8 Null-State triggers fallback when length is 0)
-  const [activeAlerts] = useState([]);
-  const [resolvedAlerts] = useState([
-    { id: 'ALT101', title: 'Database connection pool usage spike', severity: 'warning', date: '2026-06-02 11:15', duration: '14 mins', resolution: 'Auto-scaled connection pools' },
-    { id: 'ALT102', title: 'Email API provider connection timeout', severity: 'critical', date: '2026-06-02 09:22', duration: '3 mins', resolution: 'Switched to primary backup mail route' },
-    { id: 'ALT103', title: 'Voter verification API rate-limit alert', severity: 'warning', date: '2026-06-01 16:40', duration: '30s', resolution: 'Throttled requests dynamically' }
-  ]);
 
   // Elections State
-  const [elections, setElections] = useState([
-    { 
-      id: 'ELC001', 
-      name: 'Student Council President 2026', 
-      description: 'Annual election for the college student council president position.',
-      start: '2026-06-01', 
-      end: '2026-06-03 16:00', 
-      type: 'Public',
-      status: 'Running', 
-      voters: 2500, 
-      votesCast: 1420,
-      draw: false,
-      rules: { branch: 'ALL', rollRange: '1-200', laterals: true },
-      candidates: ['CAND001', 'CAND002']
-    },
-    { 
-      id: 'ELC002', 
-      name: 'CSE Senate Representative Poll', 
-      description: 'Departmental vote for the Computer Science & Engineering Senate representative.',
-      start: '2026-06-01', 
-      end: '2026-06-02 14:00', 
-      type: 'Private',
-      accessCode: 'VG-ACCESS-CR26',
-      status: 'Running', 
-      voters: 350, 
-      votesCast: 290,
-      draw: false,
-      rules: { branch: 'CSE', rollRange: '1-64', laterals: true },
-      candidates: ['CAND003', 'CAND004']
-    },
-    { 
-      id: 'ELC003', 
-      name: 'Alumni Association Board Selection', 
-      description: 'Global poll for alumni board selection.',
-      start: '2026-05-15', 
-      end: '2026-05-17 18:00', 
-      type: 'Public',
-      status: 'Completed', 
-      voters: 3101, 
-      votesCast: 2822,
-      draw: false,
-      rules: { branch: 'ALL', rollRange: 'ALL', laterals: false },
-      candidates: []
-    },
-    { 
-      id: 'ELC004', 
-      name: 'ECE Department Rep 2026', 
-      description: 'Electronics & Communication Engineering department representative vote.',
-      start: '2026-06-01', 
-      end: '2026-06-02 12:00', 
-      type: 'Public',
-      status: 'Completed', 
-      voters: 500, 
-      votesCast: 240,
-      draw: true, // Deadlocked poll for tie-break actions
-      rules: { branch: 'ECE', rollRange: '1-100', laterals: true },
-      candidates: ['CAND005', 'CAND006']
-    }
-  ]);
 
   // Candidates State (Dedicated Tab 3)
-  const [candidates, setCandidates] = useState([
-    { id: 'CAND001', name: 'Aarav Mehta', dept: 'CSE', rollNo: '21CS001', manifesto: 'Empowering students through open source and tech workspace transparency.', electionId: 'ELC001', votes: 820 },
-    { id: 'CAND002', name: 'Priya Sharma', dept: 'CSE', rollNo: '21CS042', manifesto: 'Fostering inclusivity and cross-department innovation.', electionId: 'ELC001', votes: 600 },
-    { id: 'CAND003', name: 'Vikram Aditya', dept: 'IT', rollNo: '21IT054', manifesto: 'Streamlining campus infrastructure and network capabilities.', electionId: 'ELC002', votes: 200 },
-    { id: 'CAND004', name: 'Ananya Iyer', dept: 'CSE', rollNo: '21CS102', manifesto: 'Improving student wellness and direct representation platforms.', electionId: 'ELC002', votes: 90 },
-    { id: 'CAND005', name: 'Rohan Verma', dept: 'ECE', rollNo: '22EC015', manifesto: 'Strengthening robotics and automation facilities.', electionId: 'ELC004', votes: 120 },
-    { id: 'CAND006', name: 'Aditya Nair', dept: 'ME', rollNo: '23ME089', manifesto: 'Developing green energy projects on campus.', electionId: 'ELC004', votes: 120 }
-  ]);
 
   // Users / Voters state with multi-ID mapping
-  const [voters, setVoters] = useState([
-    { roll: '21CS001', name: 'Aarav Mehta', dept: 'CSE', userCreatedId: 'aarav_mehta', systemId: 'SYS-VOT-9982', status: 'Voted', eligible: true },
-    { roll: '21CS042', name: 'Priya Sharma', dept: 'CSE', userCreatedId: 'priya_s', systemId: 'SYS-VOT-1049', status: 'Token Dispatched - Not Voted', eligible: true },
-    { roll: '22EC015', name: 'Rohan Verma', dept: 'ECE', userCreatedId: 'rohan_v', systemId: 'SYS-VOT-4932', status: 'Registered', eligible: true },
-    { roll: '23ME089', name: 'Aditya Nair', dept: 'ME', userCreatedId: 'aditya_n', systemId: 'SYS-VOT-8821', status: 'Registered', eligible: true },
-    { roll: '21CS102', name: 'Ananya Iyer', dept: 'CSE', userCreatedId: 'ananya_i', systemId: 'SYS-VOT-3042', status: 'Voted', eligible: true },
-    { roll: '22EC144', name: 'Kabir Kapoor', dept: 'ECE', userCreatedId: 'kabir_k', systemId: 'SYS-VOT-1040', status: 'Registered', eligible: true },
-    { roll: '23EE005', name: 'Sneha Patel', dept: 'EE', userCreatedId: 'sneha_p', systemId: 'SYS-VOT-2041', status: 'Registered', eligible: false },
-    { roll: '21IT054', name: 'Vikram Singh', dept: 'IT', userCreatedId: 'vikram_s', systemId: 'SYS-VOT-4903', status: 'Voted', eligible: true },
-  ]);
 
   // Selected Voters for Bulk Actions
-  const [selectedVoters, setSelectedVoters] = useState([]);
 
   // Audit Logs (with severity rating and stripped raw tokens)
-  const [logs, setLogs] = useState([
-    { ts: '14:28:40', ev: 'CONFIG_UPDATE', usr: 'admin', desc: 'saved configuration setup', status: 'ok', level: 'INFO' },
-    { ts: '14:29:01', ev: 'ELECTION_START', usr: 'admin', desc: 'activated election ELC002', status: 'ok', level: 'INFO' },
-    { ts: '14:29:44', ev: 'OTP_VERIFY', usr: '21CS001', desc: 'MFA verified (email channel)', status: 'ok', level: 'INFO' },
-    { ts: '14:30:12', ev: 'RATE_LIMIT', usr: '23EE005', desc: 'Repeated verification failure (lockout active)', status: 'warn', level: 'WARNING' },
-    { ts: '14:31:30', ev: 'ELIGIBILITY', usr: '22EC015', desc: 'Eligibility check completed', status: 'ok', level: 'INFO' },
-    { ts: '14:31:55', ev: 'OTP_VERIFY', usr: '21IT054', desc: 'MFA verified (SMS channel)', status: 'ok', level: 'INFO' },
-    { ts: '14:31:58', ev: 'TOKEN_GEN', usr: '21IT054', desc: 'Token Generated = TRUE (Token value stripped for security)', status: 'ok', level: 'INFO' },
-    { ts: '14:32:01', ev: 'VOTE_CAST', usr: '21IT054', desc: 'Committing secure anonymous ballot', status: 'ok', level: 'INFO' },
-    { ts: '14:32:15', ev: 'BACKUP_SYNC', usr: 'system', desc: 'Database sync delay detected (14 mins)', status: 'warn', level: 'WARNING' },
-    { ts: '14:33:02', ev: 'ELECTION_TIE', usr: 'system', desc: 'Tie Imbalance Identified in ELC004 (ECE)', status: 'err', level: 'CRITICAL' },
-  ]);
 
   // Security Integrity Monitor State
-  const [securityStats, setSecurityStats] = useState({
-    duplicateAttempts: 0,
-    invalidTokens: 3,
-    rateLimitedUsers: 2,
-    blockedRequests: 15
-  });
 
   // --- PROFILE & PRODUCTIVITY WORKSPACE STATES (SECTION 1-9) ---
-  const [adminProfile, setAdminProfile] = useState(null);
-  const [adminBio, setAdminBio] = useState(() => {
-    const saved = localStorage.getItem('vg_admin_bio');
-    return saved !== null ? saved : 'Responsible for election governance, system health observation, and platform operations security within the institution. Managing audit records and whitelists.';
-  });
   
-  const [adminNotes, setAdminNotes] = useState(() => {
-    const saved = localStorage.getItem('vg_admin_notes');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, title: 'CR Election Eligibility Review', text: 'Remember to review CSE election eligibility list and double-check for lateral entry category entries.', pinned: true, archived: false, date: '2026-06-02 10:30' },
-      { id: 2, title: 'Department Roll Overrides', text: 'Follow up with ECE department coordinator regarding missing lateral roll numbers.', pinned: false, archived: false, date: '2026-06-02 09:15' },
-      { id: 3, title: 'Pre-Closure Audit Compile', text: 'Generate final cryptographic audit report before Student Council election closes at 16:00.', pinned: false, archived: false, date: '2026-06-01 15:45' }
-    ];
-  });
 
-  const [adminTasks, setAdminTasks] = useState(() => {
-    const saved = localStorage.getItem('vg_admin_tasks');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, title: 'Review CSE Roll Overrides', priority: 'High', deadline: '2026-06-02', completed: false },
-      { id: 2, title: 'Generate ELC003 Archive', priority: 'Medium', deadline: '2026-06-03', completed: true },
-      { id: 3, title: 'Inspect ECE Deadlock Tie-break', priority: 'Critical', deadline: '2026-06-02', completed: false },
-      { id: 4, title: 'Perform Backup Sync check', priority: 'Low', deadline: '2026-06-04', completed: false }
-    ];
-  });
 
-  const [adminEmail, setAdminEmail] = useState(() => {
-    return localStorage.getItem('vg_admin_email') || 'hariharsha@voteguard.org';
-  });
   
-  const [adminPhone, setAdminPhone] = useState(() => {
-    return localStorage.getItem('vg_admin_phone') || '+91 98765 43210';
-  });
 
-  const [notifEmail, setNotifEmail] = useState(true);
-  const [notifSms, setNotifSms] = useState(false);
-  const [notifPush, setNotifPush] = useState(true);
 
-  const [adminPassCurrent, setAdminPassCurrent] = useState('');
-  const [adminPassNew, setAdminPassNew] = useState('');
-  const [adminPassConfirm, setAdminPassConfirm] = useState('');
 
-  const [noteSearchQuery, setNoteSearchQuery] = useState('');
-  const [showArchivedNotes, setShowArchivedNotes] = useState(false);
 
-  const [noteTitleInput, setNoteTitleInput] = useState('');
-  const [noteTextInput, setNoteTextInput] = useState('');
-  const [editingNoteId, setEditingNoteId] = useState(null);
 
-  const [taskTitleInput, setTaskTitleInput] = useState('');
-  const [taskPriorityInput, setTaskPriorityInput] = useState('Medium');
-  const [taskDeadlineInput, setTaskDeadlineInput] = useState('2026-06-02');
-  const [showTaskForm, setShowTaskForm] = useState(false);
 
   // Sync to local storage
   useEffect(() => {
@@ -538,63 +603,21 @@ export default function Dashboard() {
   }, [adminPhone]);
 
   // Election templates state (CR election, Student senate, etc)
-  const [selectedTemplate, setSelectedTemplate] = useState('');
-  const [electionTemplates, setElectionTemplates] = useState([
-    { id: 'T_CR', name: 'CR Election Template', description: 'Class Representative vote with standard 1-64 CSE roll index.', rules: { branch: 'CSE', rollRange: '1-64', laterals: true } },
-    { id: 'T_DEPT', name: 'Department Representative Template', description: 'Department wide election template.', rules: { branch: 'ECE', rollRange: '1-100', laterals: true } },
-    { id: 'T_CLUB', name: 'Club President Template', description: 'Presidential poll for societies.', rules: { branch: 'ALL', rollRange: 'ALL', laterals: false } },
-    { id: 'T_SENATE', name: 'Student Senate Template', description: 'College-wide student senate election structure.', rules: { branch: 'ALL', rollRange: '1-200', laterals: true } }
-  ]);
 
   // Form states for adding election
-  const [newElName, setNewElName] = useState('');
-  const [newElDesc, setNewElDesc] = useState('');
-  const [newElStart, setNewElStart] = useState('2026-06-02');
-  const [newElEnd, setNewElEnd] = useState('2026-06-04 17:00');
-  const [newElType, setNewElType] = useState('Public');
-  const [newElAccessCode, setNewElAccessCode] = useState('');
-  const [newElBranch, setNewElBranch] = useState('ALL');
-  const [newElRange, setNewElRange] = useState('1-100');
-  const [newElLaterals, setNewElLaterals] = useState(true);
 
   // Excel Override Simulator States
-  const [excelInputEligible, setExcelInputEligible] = useState('');
-  const [excelInputIneligible, setExcelInputIneligible] = useState('');
-  const [excelValidationLogs, setExcelValidationLogs] = useState([]);
-  const [excelSuccess, setExcelSuccess] = useState(null);
 
   // Token recovery exception states (secure resend workflow)
-  const [tokenRecoveryUser, setTokenRecoveryUser] = useState(null);
-  const [recoveryStatusText, setRecoveryStatusText] = useState('');
-  const [isRecovering, setIsRecovering] = useState(false);
-  const [recoveryFinished, setRecoveryFinished] = useState(false);
 
   // Candidate Form States
-  const [candName, setCandName] = useState('');
-  const [candDept, setCandDept] = useState('CSE');
-  const [candRoll, setCandRoll] = useState('');
-  const [candManifesto, setCandManifesto] = useState('');
-  const [candElectionId, setCandElectionId] = useState('ELC001');
-  const [editCandId, setEditCandId] = useState(null);
 
   // Search results/filtered logs state
-  const [displayedLogsCount, setDisplayedLogsCount] = useState(15);
-  const [auditTimeFilterFrom, setAuditTimeFilterFrom] = useState('');
-  const [auditTimeFilterTo, setAuditTimeFilterTo] = useState('');
-  const [auditSeverityFilter, setAuditSeverityFilter] = useState('ALL');
 
   // PDF download progress simulator state
-  const [exportingElectionId, setExportingElectionId] = useState(null);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [signedPdfData, setSignedPdfData] = useState(null);
 
   // Security Lockout / Progressive Throttling Cockpit Simulator
-  const [simulatedIp, setSimulatedIp] = useState('192.168.1.144');
-  const [simulatedFailures, setSimulatedFailures] = useState(0);
-  const [simulatedCooldown, setSimulatedCooldown] = useState(0);
-  const [simulatedStatus, setSimulatedStatus] = useState('Clean (Zero Delay)');
 
-  const logEndRef = useRef(null);
 
   // Cooldown timer simulator for security cockpit
   useEffect(() => {
@@ -817,15 +840,13 @@ export default function Dashboard() {
       'Stop Election Permanently',
       `Are you sure you want to stop the election "${el?.name || 'this election'}" permanently? This action is immutable and will lock the current vote count.`,
       async () => {
-        const { error } = await supabase
-          .from('elections')
-          .update({ status: 'Completed' })
-          .eq('id', id);
+        const { data: finalStatus, error } = await supabase
+          .rpc('finalize_election', { p_election_id: id });
 
         if (error) {
-          alert('Failed to stop election: ' + error.message);
+          alert('Failed to stop/finalize election: ' + error.message);
         } else {
-          await addAuditLog('ELECTION_STOP', 'admin', `Stopped and completed ${el.name} permanently`, 'INFO', 'ok');
+          await addAuditLog('ELECTION_STOP', 'admin', `Finalized election ${el.name} permanently. Outcome status resolved to: ${finalStatus}`, 'INFO', 'ok');
           await fetchDatabaseData();
         }
       }
@@ -1285,37 +1306,57 @@ export default function Dashboard() {
     triggerConfirm(
       'Declare Joint Winners',
       `Are you sure you want to declare joint winners for the election "${el?.name || 'this election'}"? This override will combine victory configurations in the ledger.`,
-      () => {
-        setElections(prev => prev.map(item => {
-          if (item.id === electionId) {
-            addAuditLog('TIE_BREAK', 'admin', `Joint Winners declared for ECE Representative election (ELC004)`, 'INFO', 'ok');
-            return { ...item, status: 'Completed', draw: false, jointWinner: true };
-          }
-          return item;
-        }));
-        setInspectedElection(null);
+      async () => {
+        const { error } = await supabase
+          .rpc('declare_joint_winners', { p_election_id: electionId });
+
+        if (error) {
+          alert('Failed to declare joint winners: ' + error.message);
+        } else {
+          await addAuditLog('TIE_BREAK', 'admin', `Joint Winners override declared for election: ${el?.name}`, 'INFO', 'ok');
+          await fetchDatabaseData();
+          setInspectedElection(null);
+        }
       }
     );
   };
 
   const handleReopenElection = (electionId) => {
     const el = elections.find(x => x.id === electionId);
+    const defaultTime = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 16);
+    
+    const userInput = prompt(
+      `Reopen Election "${el?.name || 'this election'}"\n` +
+      `Existing vote counters will be reset to zero, previous tokens will be flushed, and a new voting window will be initialized.\n\n` +
+      `Enter the new election end date and time (YYYY-MM-DD HH:MM):`,
+      defaultTime
+    );
+
+    if (userInput === null) return; // User cancelled
+
+    const newEndTime = new Date(userInput);
+    if (isNaN(newEndTime.getTime()) || newEndTime <= new Date()) {
+      alert('Invalid date/time. The date must be a valid future timestamp.');
+      return;
+    }
+
     triggerConfirm(
-      'Reopen Election',
-      `Are you sure you want to reopen the election "${el?.name || 'this election'}"? Existing vote counters will be reset to zero, previous tokens will be flushed, and a new voting window will be initialized.`,
-      () => {
-        setElections(prev => prev.map(item => {
-          if (item.id === electionId) {
-            addAuditLog('TIE_BREAK', 'admin', `Re-opened election ${item.name}. Resetted counters, flushed previous tokens and initialized fresh window.`, 'WARNING', 'warn');
-            return { ...item, status: 'Running', draw: false, votesCast: 0, jointWinner: false };
-          }
-          return item;
-        }));
-        setCandidates(prev => prev.map(c => {
-          if (c.electionId === electionId) return { ...c, votes: 0 };
-          return c;
-        }));
-        setInspectedElection(null);
+      'Confirm Reopen Election',
+      `Are you sure you want to reopen "${el?.name}" until ${newEndTime.toLocaleString()}?`,
+      async () => {
+        const { error } = await supabase
+          .rpc('reopen_election', { 
+            p_election_id: electionId, 
+            p_new_end_time: newEndTime.toISOString() 
+          });
+
+        if (error) {
+          alert('Failed to reopen election: ' + error.message);
+        } else {
+          await addAuditLog('TIE_BREAK', 'admin', `Reopened election ${el?.name} until ${newEndTime.toISOString()}. Cleared previous votes and tokens.`, 'WARNING', 'warn');
+          await fetchDatabaseData();
+          setInspectedElection(null);
+        }
       }
     );
   };
@@ -1469,6 +1510,7 @@ export default function Dashboard() {
         setAdminPassConfirm('');
       }
     } catch (err) {
+      console.error('Password update exception:', err);
       alert('Failed to update password.');
     } finally {
       setIsSubmitting(false);
@@ -1481,6 +1523,7 @@ export default function Dashboard() {
         await supabase.rpc('handle_logout');
         await supabase.auth.signOut();
       } catch (err) {
+        console.error('Logout error:', err);
         await supabase.auth.signOut();
       }
       navigate('/portal');
@@ -1705,7 +1748,7 @@ export default function Dashboard() {
       </div>
 
       {/* MAIN VIEWPORT */}
-      <div className="dashboard-main">
+      <div className="dashboard-main" ref={contentRef}>
         {/* HEADER BAR */}
         <div className="dashboard-header">
           <button 
@@ -2729,7 +2772,24 @@ export default function Dashboard() {
                         </div>
                       ) : (
                         <div className="hover-winner-info">
-                          {winner ? (
+                          {el.jointWinner ? (
+                            <>
+                              <span className="lbl" style={{ color: '#d4af37', display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                JOINT WINNERS
+                              </span>
+                              {el.winners && el.winners.map(w => (
+                                <div key={w.id} className="winner-row" style={{ borderLeft: '3px solid #d4af37', paddingLeft: '8px', marginBottom: '8px' }}>
+                                  <div className="winner-avatar" style={{ background: 'rgba(212, 175, 55, 0.2)', color: '#d4af37' }}>
+                                    {w.name.split(' ').map(x=>x[0]).join('')}
+                                  </div>
+                                  <div className="winner-meta">
+                                    <span className="name" style={{ fontWeight: 'bold' }}>{w.name} ({w.dept})</span>
+                                    <span className="votes-count" style={{ fontSize: '0.85em', opacity: 0.8 }}>{w.votes} votes</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </>
+                          ) : winner ? (
                             <>
                               <div className="winner-row">
                                 <div className="winner-avatar">{winner.name.split(' ').map(x=>x[0]).join('')}</div>
@@ -3217,15 +3277,108 @@ export default function Dashboard() {
                     <form onSubmit={handleUpdatePassword} className="settings-password-form">
                       <div className="field">
                         <label htmlFor="settings-pass-current">Current Password</label>
-                        <input id="settings-pass-current" type="password" value={adminPassCurrent} onChange={(e) => setAdminPassCurrent(e.target.value)} placeholder="••••••••" />
+                        <div style={{ position: 'relative', width: '100%' }}>
+                          <input 
+                            id="settings-pass-current" 
+                            type={showSettingsPassCurrent ? "text" : "password"} 
+                            value={adminPassCurrent} 
+                            onChange={(e) => setAdminPassCurrent(e.target.value)} 
+                            placeholder="••••••••" 
+                            style={{ paddingRight: '40px' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowSettingsPassCurrent(!showSettingsPassCurrent)}
+                            style={{
+                              position: 'absolute',
+                              right: '12px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text2)',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              zIndex: 10
+                            }}
+                            tabIndex="-1"
+                          >
+                            {showSettingsPassCurrent ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                          </button>
+                        </div>
                       </div>
                       <div className="field">
                         <label htmlFor="settings-pass-new">New Password</label>
-                        <input id="settings-pass-new" type="password" value={adminPassNew} onChange={(e) => setAdminPassNew(e.target.value)} placeholder="••••••••" />
+                        <div style={{ position: 'relative', width: '100%' }}>
+                          <input 
+                            id="settings-pass-new" 
+                            type={showSettingsPassNew ? "text" : "password"} 
+                            value={adminPassNew} 
+                            onChange={(e) => setAdminPassNew(e.target.value)} 
+                            placeholder="••••••••" 
+                            style={{ paddingRight: '40px' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowSettingsPassNew(!showSettingsPassNew)}
+                            style={{
+                              position: 'absolute',
+                              right: '12px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text2)',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              zIndex: 10
+                            }}
+                            tabIndex="-1"
+                          >
+                            {showSettingsPassNew ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                          </button>
+                        </div>
                       </div>
                       <div className="field">
                         <label htmlFor="settings-pass-confirm">Confirm Password</label>
-                        <input id="settings-pass-confirm" type="password" value={adminPassConfirm} onChange={(e) => setAdminPassConfirm(e.target.value)} placeholder="••••••••" />
+                        <div style={{ position: 'relative', width: '100%' }}>
+                          <input 
+                            id="settings-pass-confirm" 
+                            type={showSettingsPassConfirm ? "text" : "password"} 
+                            value={adminPassConfirm} 
+                            onChange={(e) => setAdminPassConfirm(e.target.value)} 
+                            placeholder="••••••••" 
+                            style={{ paddingRight: '40px' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowSettingsPassConfirm(!showSettingsPassConfirm)}
+                            style={{
+                              position: 'absolute',
+                              right: '12px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text2)',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              zIndex: 10
+                            }}
+                            tabIndex="-1"
+                          >
+                            {showSettingsPassConfirm ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                          </button>
+                        </div>
                       </div>
                       <button type="submit" className="btn-action-sm gold" style={{ marginTop: '8px' }} disabled={isSubmitting}>
                         {isSubmitting ? 'Updating Credentials...' : 'Update Security Credentials'}
@@ -3722,4 +3875,4 @@ export default function Dashboard() {
 
     </div>
   );
-}
+}

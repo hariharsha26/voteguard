@@ -4,159 +4,12 @@ import VoterNavigation from '../components/VoterNavigation';
 import SpotlightCard from '../components/ReactBits/SpotlightCard';
 import CountUpNumber from '../components/ReactBits/CountUpNumber';
 import '../styles/VoterDashboard.css';
-import { IconShield, IconSettings, IconBulb, IconAlertTriangle, IconLock, IconBox, IconTrophy, IconX, IconInfoCircle } from '@tabler/icons-react';
+import { IconShield, IconBulb, IconAlertTriangle, IconLock, IconBox, IconTrophy, IconX, IconInfoCircle } from '@tabler/icons-react';
 import { supabase } from '../lib/supabaseClient';
 
 export default function VoterDashboard() {
   const navigate = useNavigate();
   const [checkingAuth, setCheckingAuth] = useState(true);
-
-  const sha256 = async (message) => {
-    const msgBuffer = new TextEncoder().encode(message);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    return hashHex;
-  };
-
-  const fetchVoterData = async (userRoll) => {
-    try {
-      const { data: dbElections, error: elError } = await supabase
-        .from('elections')
-        .select('*')
-        .neq('status', 'Draft')
-        .order('created_at', { ascending: false });
-
-      if (elError) throw elError;
-
-      const { data: dbCandidates, error: candError } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('status', 'active')
-        .order('created_at', { ascending: true });
-
-      if (candError) throw candError;
-
-      const { data: dbParticipation, error: partError } = await supabase
-        .from('voter_participation')
-        .select('*')
-        .eq('roll_number', userRoll);
-
-      if (partError) throw partError;
-
-      const mappedCandidates = (dbCandidates || []).map(c => ({
-        id: c.id,
-        name: c.candidate_name,
-        dept: c.department || '',
-        photo: c.candidate_name.split(' ').map(x=>x[0]).join(''),
-        manifesto: c.manifesto || '',
-        about: `Voter ID roll profile candidate in ${c.department}.`
-      }));
-
-      const mappedElections = (dbElections || []).map(el => {
-        const part = (dbParticipation || []).find(p => p.election_id === el.id);
-        const voted = part ? part.has_voted : false;
-        const verificationToken = voted ? `VG-${el.election_code}-${userRoll}` : null;
-
-        let uiStatus = 'Active';
-        if (el.status === 'Completed') uiStatus = 'Completed';
-        else if (el.status === 'Paused') uiStatus = 'Paused';
-        else if (el.status === 'Emergency_Stopped') uiStatus = 'Emergency_Locked';
-
-        const elCands = mappedCandidates.filter(c => {
-          const dbCand = dbCandidates.find(dbc => dbc.id === c.id);
-          return dbCand && dbCand.election_id === el.id;
-        });
-
-        return {
-          id: el.id,
-          name: el.election_name,
-          description: el.description || '',
-          start: new Date(el.start_time).toLocaleString(),
-          end: new Date(el.end_time).toLocaleString(),
-          rules: [
-            'Each student is entitled to cast exactly one ballot.',
-            'The ballot is completely anonymous and cryptographically hashed.',
-            'Ensure you keep your generated Verification Token safe after voting.'
-          ],
-          candidates: elCands,
-          voted: voted,
-          voteTime: voted ? 'Recorded' : null,
-          verificationToken: verificationToken,
-          resultsPublic: el.status === 'Completed',
-          status: uiStatus,
-          type: el.election_type,
-          accessCode: el.access_code || ''
-        };
-      });
-
-      setElections(mappedElections);
-    } catch (err) {
-      console.error('Failed to fetch voter dashboard data:', err);
-    }
-  };
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          navigate('/voter-auth');
-          return;
-        }
-
-        const jwtPayload = JSON.parse(atob(session.access_token.split('.')[1]));
-        const sessionId = jwtPayload.session_id;
-
-        if (jwtPayload.app_metadata?.role !== 'voter') {
-          navigate('/voter-auth');
-          return;
-        }
-
-        const { data, error } = await supabase
-          .from('verified_sessions')
-          .select('verified')
-          .eq('session_id', sessionId)
-          .single();
-
-        if (error || !data || !data.verified) {
-          navigate('/voter-auth');
-          return;
-        }
-
-        // Fetch real voter profile data
-        const { data: profile } = await supabase
-          .from('voters')
-          .select('*')
-          .eq('auth_user_id', session.user.id)
-          .single();
-
-        if (profile) {
-          setVoter({
-            name: profile.full_name,
-            userId: profile.roll_number,
-            department: profile.department || 'General',
-            rollNumber: profile.roll_number,
-            institution: 'Vidyavardhini Institute of Technology',
-            year: 'Voter Account',
-            email: profile.email,
-            phone: profile.phone_number || '',
-            electionStatus: 'Active & Eligible',
-            memberSince: new Date(profile.created_at).toLocaleDateString(),
-            accountStatus: 'Active',
-            avatarUrl: '/aarav_mehta_avatar.png'
-          });
-          await fetchVoterData(profile.roll_number);
-        }
-
-        setCheckingAuth(false);
-      } catch (err) {
-        navigate('/voter-auth');
-      }
-    };
-
-    checkAuth();
-  }, [navigate]);
 
   // 1. Core Voter Information
   const [voter, setVoter] = useState({
@@ -323,6 +176,174 @@ export default function VoterDashboard() {
     { ts: new Date().toLocaleTimeString(), ev: 'LOGGED_IN', desc: 'Secure voter session initialized', status: 'ok', payload: { auth_level: 'voter', check_integrity: 'PASS' } }
   ]);
 
+
+
+  const fetchVoterData = async (userRoll) => {
+    try {
+      const { data: dbElections, error: elError } = await supabase
+        .from('elections')
+        .select('*')
+        .neq('status', 'Draft')
+        .order('created_at', { ascending: false });
+
+      if (elError) throw elError;
+
+      const { data: dbCandidates, error: candError } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('status', 'active')
+        .order('created_at', { ascending: true });
+
+      if (candError) throw candError;
+
+      const { data: dbParticipation, error: partError } = await supabase
+        .from('voter_participation')
+        .select('*')
+        .eq('roll_number', userRoll);
+
+      if (partError) throw partError;
+
+      // Fetch votes count (allowed for finalized elections by RLS)
+      const { data: dbVotes } = await supabase
+        .from('votes')
+        .select('candidate_id');
+      const votesMap = {};
+      if (dbVotes) {
+        dbVotes.forEach(v => {
+          votesMap[v.candidate_id] = (votesMap[v.candidate_id] || 0) + 1;
+        });
+      }
+
+      const mappedCandidates = (dbCandidates || []).map(c => ({
+        id: c.id,
+        name: c.candidate_name,
+        dept: c.department || '',
+        photo: c.candidate_name.split(' ').map(x=>x[0]).join(''),
+        manifesto: c.manifesto || '',
+        about: `Voter ID roll profile candidate in ${c.department}.`,
+        votes: votesMap[c.id] || 0
+      }));
+
+      const mappedElections = (dbElections || []).map(el => {
+        const part = (dbParticipation || []).find(p => p.election_id === el.id);
+        const voted = part ? part.has_voted : false;
+        const verificationToken = voted ? `VG-${el.election_code}-${userRoll}` : null;
+
+        let uiStatus = 'Active';
+        if (el.status === 'Completed') uiStatus = 'Completed';
+        else if (el.status === 'Paused') uiStatus = 'Paused';
+        else if (el.status === 'Emergency_Stopped') uiStatus = 'Emergency_Locked';
+        else if (el.status === 'Draw / Deadlock') uiStatus = 'Draw / Deadlock';
+
+        const elCands = mappedCandidates.filter(c => {
+          const dbCand = dbCandidates.find(dbc => dbc.id === c.id);
+          return dbCand && dbCand.election_id === el.id;
+        });
+
+        return {
+          id: el.id,
+          name: el.election_name,
+          description: el.description || '',
+          start: new Date(el.start_time).toLocaleString(),
+          end: new Date(el.end_time).toLocaleString(),
+          rules: [
+            'Each student is entitled to cast exactly one ballot.',
+            'The ballot is completely anonymous and cryptographically hashed.',
+            'Ensure you keep your generated Verification Token safe after voting.'
+          ],
+          candidates: elCands,
+          voted: voted,
+          voteTime: voted ? 'Recorded' : null,
+          verificationToken: verificationToken,
+          resultsPublic: el.status === 'Completed' || el.status === 'Draw / Deadlock',
+          status: uiStatus,
+          type: el.election_type,
+          accessCode: el.access_code || '',
+          draw: el.status === 'Draw / Deadlock',
+          jointWinner: el.joint_winners,
+          winners: el.winners
+        };
+      });
+
+      setElections(mappedElections);
+    } catch (err) {
+      console.error('Failed to fetch voter dashboard data:', err);
+    }
+  };
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          navigate('/voter-auth');
+          return;
+        }
+
+        const jwtPayload = JSON.parse(atob(session.access_token.split('.')[1]));
+        const sessionId = jwtPayload.session_id;
+
+        if (jwtPayload.app_metadata?.role !== 'voter') {
+          navigate('/voter-auth');
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('verified_sessions')
+          .select('verified')
+          .eq('session_id', sessionId)
+          .maybeSingle();
+
+        if (error || !data || !data.verified) {
+          navigate('/voter-auth');
+          return;
+        }
+
+        // Fetch real voter profile data
+        const { data: profile } = await supabase
+          .from('voters')
+          .select('*')
+          .eq('auth_user_id', session.user.id)
+          .maybeSingle();
+
+        if (profile) {
+          setVoter({
+            name: profile.full_name,
+            userId: profile.roll_number,
+            department: profile.department || 'General',
+            rollNumber: profile.roll_number,
+            institution: 'Vidyavardhini Institute of Technology',
+            year: 'Voter Account',
+            email: profile.email,
+            phone: profile.phone_number || '',
+            electionStatus: 'Active & Eligible',
+            memberSince: new Date(profile.created_at).toLocaleDateString(),
+            accountStatus: 'Active',
+            avatarUrl: '/aarav_mehta_avatar.png'
+          });
+          await fetchVoterData(profile.roll_number);
+        }
+
+        setCheckingAuth(false);
+      } catch (err) {
+        console.error('Check auth error:', err);
+        navigate('/voter-auth');
+      }
+    };
+
+    checkAuth();
+  }, [navigate]);
+
+  // Scroll to top of window on tab or wizard step change
+  useEffect(() => {
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  }, [activeTab, wizardStep]);
+
+
+
   const handleVerifyTokenInPortal = async () => {
     const token = verificationSearchToken.trim();
     if (!token) {
@@ -338,13 +359,13 @@ export default function VoterDashboard() {
       if (error) throw error;
 
       setVerificationResult({
-        electionName: 'Secure Voter Registry',
+        electionName: data.election_name || 'Secure Voter Registry',
         token: token,
-        status: data,
+        status: data.status || 'Unknown',
         time: new Date().toLocaleString()
       });
       setVerificationError(null);
-      addAuditLog('TOKEN_VERIFIED_PORTAL', `Verified token status in portal: ${data}`);
+      addAuditLog('TOKEN_VERIFIED_PORTAL', `Verified token status in portal: ${data.status || 'Unknown'}`);
     } catch (err) {
       console.error('Failed to verify token in portal:', err);
       setVerificationResult(null);
@@ -379,6 +400,7 @@ export default function VoterDashboard() {
         await supabase.rpc('handle_logout');
         await supabase.auth.signOut();
       } catch (err) {
+        console.error('Logout error:', err);
         // Fallback signout
         await supabase.auth.signOut();
       }
@@ -589,6 +611,10 @@ export default function VoterDashboard() {
   // Navigating to participate from home screen status card
   const handleParticipate = () => {
     const crElection = elections.find(e => e.id === 'ELC-2026-CR');
+    if (!crElection) {
+      triggerToast('CR Election 2026 is not available at the moment.');
+      return;
+    }
     launchVotingWizard(crElection);
     setActiveTab('My Elections');
   };
@@ -853,17 +879,25 @@ cryptographically sealed on the ledger.
     setWizardLoadingMessage('Creating election token...');
 
     try {
-      const generatedToken = `VG-${activeWizardElection.id.substring(0, 4)}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-      const tokenHash = await sha256(generatedToken);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Authentication session not found.');
+      }
 
-      const { error: rpcError } = await supabase.rpc('request_election_token', {
-        p_election_id: activeWizardElection.id,
-        p_token_hash: tokenHash
+      // Call the request-token edge function
+      const { data, error: funcError } = await supabase.functions.invoke('request-token', {
+        body: { election_id: activeWizardElection.id }
       });
 
-      if (rpcError) throw rpcError;
+      if (funcError || !data) {
+        throw funcError || new Error('Failed to retrieve token from server.');
+      }
 
-      setWizardGeneratedToken(generatedToken);
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setWizardGeneratedToken(data.token);
       addAuditLog('TOKEN_GENERATED', `Cryptographic voting token successfully generated`);
       setWizardStep('token_gen_complete');
     } catch (err) {
@@ -874,26 +908,14 @@ cryptographically sealed on the ledger.
   };
 
   // Step 6: Verify Token Entry Loading & Rate Limiting Checks
-  const handleVerifyTokenSubmit = () => {
+  const handleVerifyTokenSubmit = async () => {
     if (cooldownTimeLeft > 0) {
       alert(`Token entry locked. Please wait ${cooldownTimeLeft} seconds.`);
       return;
     }
-    if (!wizardTokenInput.trim()) {
+    const token = wizardTokenInput.trim();
+    if (!token) {
       alert('Please enter your Voting Token.');
-      return;
-    }
-    
-    if (wizardTokenInput.trim().toUpperCase() !== wizardGeneratedToken.toUpperCase()) {
-      const nextAttempts = tokenAttempts + 1;
-      setTokenAttempts(nextAttempts);
-      if (nextAttempts >= 5) {
-        const cdDuration = nextAttempts >= 16 ? 300 : (nextAttempts >= 11 ? 60 : 30);
-        setCooldownTimeLeft(cdDuration);
-        triggerToast(`Security lockout triggered. Cooldown active for ${cdDuration} seconds.`);
-      } else {
-        triggerToast(`Invalid Token. Failed attempt ${nextAttempts} of 5.`);
-      }
       return;
     }
 
@@ -901,26 +923,52 @@ cryptographically sealed on the ledger.
     setWizardLoadingProgress(0);
     setWizardLoadingMessage('Validating token...');
 
-    const messages = [
-      'Validating token...',
-      'Checking election records...',
-      'Confirming participation authorization...',
-      'Token verified successfully.'
-    ];
+    try {
+      const { error } = await supabase.rpc('verify_token', {
+        p_token: token,
+        p_election_id: activeWizardElection.id
+      });
 
-    let currentStep = 0;
-    const interval = setInterval(() => {
-      currentStep++;
-      setWizardLoadingProgress(currentStep * 25);
-      if (currentStep < messages.length) {
-        setWizardLoadingMessage(messages[currentStep]);
+      if (error) throw error;
+
+      addAuditLog('TOKEN_VERIFIED', 'Anonymous voting credentials validated');
+      setWizardStep('token_verified');
+    } catch (err) {
+      console.error('Failed to verify token:', err);
+      const errMsg = err.message || '';
+      
+      // Parse progressive lockout cooldown seconds if returned from DB
+      let cooldownSecs = 0;
+      if (errMsg.includes('Too many failed attempts')) {
+        const match = errMsg.match(/after (\d+) seconds/);
+        if (match) {
+          cooldownSecs = parseInt(match[1], 10);
+        } else {
+          cooldownSecs = 300; // default 5 minutes
+        }
       }
-      if (currentStep === 4) {
-        clearInterval(interval);
-        addAuditLog('TOKEN_VERIFIED', 'Anonymous voting credentials validated');
-        setWizardStep('token_verified');
+
+      if (cooldownSecs > 0) {
+        setCooldownTimeLeft(cooldownSecs);
+        addAuditLog('TOKEN_LOCKOUT', `Multiple failed token attempts. Cooldown ${cooldownSecs}s active.`);
+        
+        let cooldownMsg;
+        if (cooldownSecs >= 1800) {
+          cooldownMsg = 'Too many failed attempts.\n\nTry again after 30 minutes.';
+        } else if (cooldownSecs >= 300) {
+          cooldownMsg = 'Too many failed attempts.\n\nTry again after 5 minutes.';
+        } else if (cooldownSecs >= 60) {
+          cooldownMsg = 'Too many failed attempts.\n\nTry again after 1 minute.';
+        } else {
+          cooldownMsg = `Too many failed attempts.\n\nTry again after ${cooldownSecs} seconds.`;
+        }
+        alert(cooldownMsg);
+      } else {
+        alert(errMsg || 'Invalid Token.');
       }
-    }, 500);
+
+      setWizardStep('token_entry');
+    }
   };
 
   // Step 9: Final Cryptographic Vote Submission (Step 9 & 10)
@@ -973,19 +1021,17 @@ cryptographically sealed on the ledger.
     }
   };
 
-  // Demo Control: Toggle results public/private for testing
-  const toggleCRResults = () => {
-    setElections(prev => prev.map(el => {
-      if (el.id === 'ELC-2026-CR') {
-        const nextState = !el.resultsPublic;
-        triggerToast(`CR Election results are now ${nextState ? 'PUBLIC' : 'PRIVATE'} (Simulated admin action)`);
-        return { ...el, resultsPublic: nextState };
-      }
-      return el;
-    }));
-  };
 
-  const crElection = elections.find(e => e.id === 'ELC-2026-CR');
+
+  const crElection = elections.find(e => e.id === 'ELC-2026-CR') || {
+    id: 'ELC-2026-CR',
+    name: 'CR Election 2026',
+    description: 'Class Representative Election for Computer Science students.',
+    voted: false,
+    status: 'Inactive',
+    candidates: [],
+    verificationToken: null
+  };
   const eligibleCount = elections.filter(e => e.status === 'Active' || e.status === 'Scheduled').length;
   const activeCount = elections.filter(e => e.status === 'Active').length;
   const votedCount = elections.filter(e => e.voted).length;
@@ -1793,6 +1839,28 @@ cryptographically sealed on the ledger.
                     }}>
                       <strong style={{ color: 'var(--red)', display: 'block', marginBottom: '4px' }}>⚠️ Security Alert</strong>
                       This token can only be used once. Anyone with access to this token can cast a ballot under your credentials. Keep it strictly private.
+                    </div>
+
+                    {/* Development Mode Helper Banner */}
+                    <div style={{
+                      padding: '14px',
+                      background: 'rgba(74, 157, 143, 0.08)',
+                      border: '1px solid rgba(74, 157, 143, 0.2)',
+                      borderRadius: '8px',
+                      color: 'var(--text)',
+                      fontSize: '12.5px',
+                      lineHeight: '1.5',
+                      textAlign: 'left',
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      marginBottom: '20px'
+                    }}>
+                      <strong style={{ color: 'var(--teal)', display: 'block', marginBottom: '4px' }}>Development Mode</strong>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0 2px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: '700', fontFamily: 'monospace' }}>Your Token: {wizardGeneratedToken}</span>
+                        <button style={{ background: 'var(--teal)', border: 'none', borderRadius: '4px', color: '#07100e', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }} onClick={() => handleCopyText(wizardGeneratedToken, 'Token')}>Copy</button>
+                      </div>
+                      <span style={{ fontSize: '11px', color: 'var(--text3)' }}>(Email simulation active)</span>
                     </div>
 
                     <div className="wizard-slide-footer full-width">
@@ -2722,9 +2790,6 @@ cryptographically sealed on the ledger.
           </div>
         )}
 
-        {/* ==========================================
-            TAB 3: RESULTS PAGE
-           ========================================== */}
         {activeTab === 'Results' && (
           <div className="tab-pane-view fade-in">
             <div className="page-intro-header">
@@ -2742,133 +2807,111 @@ cryptographically sealed on the ledger.
               </div>
             ) : (
               <div className="results-stack-container">
-              {/* Election 1: Active CR Election */}
-              <div className="results-panel-card">
-                <div className="results-header-info">
-                  <div className="left-info">
-                    <h3>CR Election 2026</h3>
-                    <span className="results-id">ID: ELC-2026-CR</span>
-                  </div>
-                  <div className="right-info">
-                    <span className="results-status-badge active">Active Poll</span>
-                  </div>
-                </div>
+                {elections.map(el => {
+                  const sortedCand = [...el.candidates].sort((a, b) => (b.votes || 0) - (a.votes || 0));
+                  const totalVotes = el.candidates.reduce((sum, c) => sum + (c.votes || 0), 0);
 
-                <div className="results-content-box">
-                  {crElection.resultsPublic ? (
-                    // Simulated public live standing charts
-                    <div className="live-standings-chart-block">
-                      <div className="live-indicator-tag">
-                        <span className="pulsing-live-dot" />
-                        LIVE OUTCOME STANDINGS (PUBLIC TALLY)
-                      </div>
-
-                      <div className="standings-bars-wrap">
-                        {/* Candidate A */}
-                        <div className="standing-bar-row">
-                          <div className="standing-cand-meta">
-                            <span className="cand-name-lbl">Aarav Mehta</span>
-                            <span className="cand-pct-val">58% (1,247 votes)</span>
-                          </div>
-                          <div className="chart-bar-container">
-                            <div className="chart-bar-fill teal-fill" style={{ width: '58%' }} />
-                          </div>
+                  return (
+                    <div key={el.id} className="results-panel-card animate-fade-in" style={{ marginBottom: '24px' }}>
+                      <div className="results-header-info">
+                        <div className="left-info">
+                          <h3>{el.name}</h3>
+                          <span className="results-id">ID: {el.id}</span>
                         </div>
-
-                        {/* Candidate B */}
-                        <div className="standing-bar-row">
-                          <div className="standing-cand-meta">
-                            <span className="cand-name-lbl">Priya Sharma</span>
-                            <span className="cand-pct-val">42% (903 votes)</span>
-                          </div>
-                          <div className="chart-bar-container">
-                            <div className="chart-bar-fill" style={{ width: '42%' }} />
-                          </div>
+                        <div className="right-info">
+                          <span className={`results-status-badge ${el.status.toLowerCase().replace(/ \/ /g, '_').replace(/ /g, '_')}`}>
+                            {el.status === 'Emergency_Locked' ? 'Emergency Stopped' : el.status}
+                          </span>
                         </div>
                       </div>
 
-                      <p className="results-public-warning">
-                        <IconAlertTriangle size={18} /> These standings represent the live cryptographic tally feed. Final outcomes will lock upon closing at 09:00 PM.
-                      </p>
-                    </div>
-                  ) : (
-                    // Securely locked standings
-                    <div className="results-locked-state">
-                      <div className="locked-shield-icon"><IconLock size={24} /></div>
-                      <h4>Results Temporarily Locked</h4>
-                      <p>
-                        The administrator has configured results for this election to be **Private** during the live voting period to prevent turnout bias. Visual standcharts and candidate vote breakdowns will be released once the polling window closes.
-                      </p>
-                      <div className="turnout-indicator-badge">
-                        Current Voter Turnout: <strong>94%</strong>
+                      <div className="results-content-box">
+                        {el.status === 'Draw / Deadlock' ? (
+                          <div className="live-standings-chart-block">
+                            <div className="live-indicator-tag alert-tag" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '4px', fontWeight: 'bold' }}>
+                              <IconAlertTriangle size={20} /> TIE DEADLOCK DETECTED (AWAITING TIE-BREAK OVERRIDE)
+                            </div>
+                            <div className="standings-bars-wrap" style={{ marginTop: '16px' }}>
+                              {sortedCand.map((c) => {
+                                const pct = totalVotes > 0 ? Math.round((c.votes / totalVotes) * 100) : 0;
+                                return (
+                                  <div key={c.id} className="standing-bar-row" style={{ marginBottom: '12px' }}>
+                                    <div className="standing-cand-meta" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                      <span className="cand-name-lbl" style={{ fontWeight: 'bold' }}>{c.name} ({c.dept})</span>
+                                      <span className="cand-pct-val">{pct}% ({c.votes} votes)</span>
+                                    </div>
+                                    <div className="chart-bar-container" style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '4px', height: '10px', overflow: 'hidden' }}>
+                                      <div className="chart-bar-fill" style={{ width: `${pct}%`, background: '#ef4444', height: '100%' }} />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : el.jointWinner ? (
+                          <div className="live-standings-chart-block">
+                            <div className="live-indicator-tag final" style={{ background: 'rgba(212, 175, 55, 0.2)', color: '#d4af37', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '4px', fontWeight: 'bold' }}>
+                              <IconTrophy size={20} /> FINAL AUDITED OUTCOMES (JOINT WINNERS DECLARED)
+                            </div>
+                            <div className="standings-bars-wrap" style={{ marginTop: '16px' }}>
+                              {sortedCand.map((c) => {
+                                const isWinner = el.winners && el.winners.some(w => w.id === c.id);
+                                const pct = totalVotes > 0 ? Math.round((c.votes / totalVotes) * 100) : 0;
+                                return (
+                                  <div key={c.id} className="standing-bar-row" style={{ marginBottom: '12px' }}>
+                                    <div className="standing-cand-meta" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                      <span className="cand-name-lbl" style={{ fontWeight: 'bold' }}>{c.name} ({c.dept}) {isWinner && '🏆'}</span>
+                                      <span className="cand-pct-val">{pct}% ({c.votes} votes)</span>
+                                    </div>
+                                    <div className="chart-bar-container" style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '4px', height: '10px', overflow: 'hidden' }}>
+                                      <div className="chart-bar-fill" style={{ width: `${pct}%`, background: isWinner ? '#d4af37' : '#5f758a', height: '100%' }} />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : el.status === 'Completed' ? (
+                          <div className="live-standings-chart-block">
+                            <div className="live-indicator-tag final" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '4px', fontWeight: 'bold' }}>
+                              <IconTrophy size={20} /> FINAL AUDITED OUTCOMES (100% SECURE BALLOTS COUNTED)
+                            </div>
+                            <div className="standings-bars-wrap" style={{ marginTop: '16px' }}>
+                              {sortedCand.map((c, i) => {
+                                const isWinner = i === 0 && c.votes > 0;
+                                const pct = totalVotes > 0 ? Math.round((c.votes / totalVotes) * 100) : 0;
+                                return (
+                                  <div key={c.id} className="standing-bar-row" style={{ marginBottom: '12px' }}>
+                                    <div className="standing-cand-meta" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                      <span className="cand-name-lbl" style={{ fontWeight: 'bold' }}>{c.name} ({c.dept}) {isWinner && '🏆'}</span>
+                                      <span className="cand-pct-val">{pct}% ({c.votes} votes)</span>
+                                    </div>
+                                    <div className="chart-bar-container" style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '4px', height: '10px', overflow: 'hidden' }}>
+                                      <div className="chart-bar-fill" style={{ width: `${pct}%`, background: isWinner ? '#4a9d8f' : '#5f758a', height: '100%' }} />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          // For active/paused/emergency elections, show locked shield to prevent turnout bias
+                          <div className="results-locked-state">
+                            <div className="locked-shield-icon"><IconLock size={24} /></div>
+                            <h4>Results Temporarily Locked</h4>
+                            <p>
+                              The administrator has configured results for this election to be **Private** during the live voting period to prevent turnout bias. Visual standings and candidate vote breakdowns will be released once the polling window closes.
+                            </p>
+                            <div className="turnout-indicator-badge">
+                              Current Turnout: <strong>{totalVotes} votes cast</strong>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })}
               </div>
-
-              {/* Election 2: Completed Alumni Selection */}
-              <div className="results-panel-card">
-                <div className="results-header-info">
-                  <div className="left-info">
-                    <h3>Alumni Association Board Selection</h3>
-                    <span className="results-id">ID: ELC-2025-ALM</span>
-                  </div>
-                  <div className="right-info">
-                    <span className="results-status-badge completed">Completed</span>
-                  </div>
-                </div>
-
-                <div className="results-content-box">
-                  <div className="live-standings-chart-block">
-                    <div className="live-indicator-tag final">
-                      <IconTrophy size={20} /> FINAL AUDITED OUTCOMES (100% BLOCKS VERIFIED)
-                    </div>
-
-                    <div className="standings-bars-wrap">
-                      {/* Candidate 1 */}
-                      <div className="standing-bar-row">
-                        <div className="standing-cand-meta">
-                          <span className="cand-name-lbl">Rajesh Kumar (Winner)</span>
-                          <span className="cand-pct-val">54% (1,240 votes)</span>
-                        </div>
-                        <div className="chart-bar-container">
-                          <div className="chart-bar-fill gold-fill" style={{ width: '54%' }} />
-                        </div>
-                      </div>
-
-                      {/* Candidate 2 */}
-                      <div className="standing-bar-row">
-                        <div className="standing-cand-meta">
-                          <span className="cand-name-lbl">Meera Patel</span>
-                          <span className="cand-pct-val">37% (850 votes)</span>
-                        </div>
-                        <div className="chart-bar-container">
-                          <div className="chart-bar-fill" style={{ width: '37%' }} />
-                        </div>
-                      </div>
-
-                      {/* Abstain */}
-                      <div className="standing-bar-row">
-                        <div className="standing-cand-meta">
-                          <span className="cand-name-lbl">Abstain / Invalid</span>
-                          <span className="cand-pct-val">9% (206 votes)</span>
-                        </div>
-                        <div className="chart-bar-container">
-                          <div className="chart-bar-fill grey-fill" style={{ width: '9%' }} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="completed-stats-row">
-                      <div className="comp-stat-badge">Total Votes: <strong>2,296</strong></div>
-                      <div className="comp-stat-badge">Turnout: <strong>91%</strong></div>
-                      <div className="comp-stat-badge font-mono">Hash: a8f1b2c4d9...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
             )}
           </div>
         )}

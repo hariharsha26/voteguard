@@ -240,10 +240,10 @@
 }
 .admin-auth-page .otp-opt.sel { border-color: rgba(212,168,67,0.3); color: var(--gold); background: var(--gold2); }
 
-.admin-auth-page .otp-wrap { display: flex; gap: 8px; justify-content: center; margin: 16px 0 8px; }
+.admin-auth-page .otp-wrap { display: flex; gap: 6px; justify-content: center; margin: 16px 0 8px; }
 .admin-auth-page .otp-wrap input {
-  width: 48px; height: 58px;
-  text-align: center; font-size: 22px; font-weight: 500;
+  width: 34px; height: 48px;
+  text-align: center; font-size: 16px; font-weight: 500;
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text);

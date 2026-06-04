@@ -4,13 +4,14 @@ import LogoMark from '../components/LogoMark';
 import OtpInput from '../components/OtpInput';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/AdminAuth.css';
-import { IconDeviceMobile, IconShield, IconClipboardList, IconBolt, IconLock, IconMail } from '@tabler/icons-react';
+import { IconDeviceMobile, IconShield, IconClipboardList, IconBolt, IconLock, IconMail, IconEye, IconEyeOff } from '@tabler/icons-react';
 import { supabase } from '../lib/supabaseClient';
 
 export default function AdminAuth() {
   const [view, setView] = useState('login'); // 'login' | 'otp-channel' | 'otp-enter'
   const [adminId, setAdminId] = useState('');
   const [adminPass, setAdminPass] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [failCount, setFailCount] = useState(0);
   const [locked, setLocked] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -60,7 +61,7 @@ export default function AdminAuth() {
 
   const handleAdminIdChange = (e) => {
     const val = e.target.value;
-    if (val.length <= 8) {
+    if (val.length <= 16) {
       setAdminId(val);
     }
   };
@@ -75,7 +76,7 @@ export default function AdminAuth() {
         .from('super_admins')
         .select('email')
         .eq('admin_id', adminId.trim().toUpperCase())
-        .single();
+        .maybeSingle();
 
       if (lookupError || !adminRecord) {
         handleFail();
@@ -104,6 +105,7 @@ export default function AdminAuth() {
 
       setView('otp-channel');
     } catch (err) {
+      console.error('Admin Auth first-stage error:', err);
       handleFail();
     }
   };
@@ -146,6 +148,7 @@ export default function AdminAuth() {
       setOtpTimer(300); // Reset timer
       setView('otp-enter');
     } catch (err) {
+      console.error('OTP send error:', err);
       setVerificationError('Failed to generate secure OTP.');
     }
   };
@@ -166,6 +169,7 @@ export default function AdminAuth() {
       alert('Two-Factor Authentication Verified! Redirecting to Dashboard.');
       navigate('/dashboard');
     } catch (err) {
+      console.error('OTP verify error:', err);
       setVerificationError('Failed to verify authentication integrity.');
     }
   };
@@ -324,35 +328,60 @@ export default function AdminAuth() {
                 <div className="field">
                   <label htmlFor="admin-id-field">
                     ADMIN ID
-                    <span className="field-hint">Exactly 8 characters</span>
+                    <span className="field-hint">Exactly 12 characters</span>
                   </label>
                   <input 
                     id="admin-id-field"
                     type="text" 
-                    placeholder="VGADM001" 
-                    maxLength={8} 
+                    placeholder="VG-SUPER-001" 
+                    maxLength={12} 
                     value={adminId}
                     onChange={handleAdminIdChange}
                     className={inputErrors ? 'error' : ''}
                     disabled={locked}
                     aria-required="true"
                   />
-                  <div className={`char-count ${adminId.length === 8 ? 'ok' : ''}`}>
-                    {adminId.length} / 8
+                  <div className={`char-count ${adminId.length === 12 ? 'ok' : ''}`}>
+                    {adminId.length} / 12
                   </div>
                 </div>
                 <div className="field">
                   <label htmlFor="admin-pass-field">PASSWORD</label>
-                  <input 
-                    id="admin-pass-field"
-                    type="password" 
-                    placeholder="Enter admin password"
-                    value={adminPass}
-                    onChange={(e) => setAdminPass(e.target.value)}
-                    className={inputErrors ? 'error' : ''}
-                    disabled={locked}
-                    aria-required="true"
-                  />
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <input 
+                      id="admin-pass-field"
+                      type={showPassword ? "text" : "password"} 
+                      placeholder="Enter admin password"
+                      value={adminPass}
+                      onChange={(e) => setAdminPass(e.target.value)}
+                      className={inputErrors ? 'error' : ''}
+                      disabled={locked}
+                      aria-required="true"
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text2)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                      tabIndex="-1"
+                    >
+                      {showPassword ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
                 <button 

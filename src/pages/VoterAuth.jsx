@@ -4,7 +4,7 @@ import LogoMark from '../components/LogoMark';
 import OtpInput from '../components/OtpInput';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/voter-auth.css';
-import { IconMail, IconDeviceMobile } from '@tabler/icons-react';
+import { IconMail, IconDeviceMobile, IconEye, IconEyeOff } from '@tabler/icons-react';
 import { supabase } from '../lib/supabaseClient';
 
 export default function VoterAuth() {
@@ -21,12 +21,15 @@ export default function VoterAuth() {
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
+  const [showRegPass, setShowRegPass] = useState(false);
+  const [showRegConfirmPass, setShowRegConfirmPass] = useState(false);
   const [registerError, setRegisterError] = useState('');
   const [registerLoading, setRegisterLoading] = useState(false);
 
   // Login States
   const [loginRollNumber, setLoginRollNumber] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPass, setShowLoginPass] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -43,6 +46,8 @@ export default function VoterAuth() {
 
   const [resetPassword, setResetPassword] = useState('');
   const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [showResetPass, setShowResetPass] = useState(false);
+  const [showResetConfirmPass, setShowResetConfirmPass] = useState(false);
   const [resetError, setResetError] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
@@ -51,7 +56,7 @@ export default function VoterAuth() {
 
   useEffect(() => {
     // Listen for password recovery event
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
       if (event === 'PASSWORD_RECOVERY') {
         setView('reset');
       }
@@ -77,7 +82,7 @@ export default function VoterAuth() {
         .from('voters')
         .select('email')
         .eq('roll_number', loginRollNumber.trim().toUpperCase())
-        .single();
+        .maybeSingle();
 
       if (lookupError || !voter) {
         setLoginError('Invalid Roll Number or Password.');
@@ -100,6 +105,7 @@ export default function VoterAuth() {
       setView('otp');
       setOtpState('idle');
     } catch (err) {
+      console.error('Login error:', err);
       setLoginError('An unexpected authentication error occurred.');
     } finally {
       setLoginLoading(false);
@@ -149,6 +155,7 @@ export default function VoterAuth() {
       setView('otp');
       setOtpState('idle');
     } catch (err) {
+      console.error('Registration error:', err);
       setRegisterError('An unexpected registration error occurred.');
     } finally {
       setRegisterLoading(false);
@@ -177,6 +184,7 @@ export default function VoterAuth() {
 
       setOtpState('sent');
     } catch (err) {
+      console.error('Send OTP error:', err);
       setOtpState('idle');
       setVerificationError('Failed to dispatch verification code.');
     }
@@ -205,6 +213,7 @@ export default function VoterAuth() {
         navigate('/voter');
       }, 1000);
     } catch (err) {
+      console.error('Verify OTP error:', err);
       setOtpState('sent');
       setVerificationError('Authentication integrity check failed.');
     }
@@ -231,6 +240,7 @@ export default function VoterAuth() {
         setForgotSuccess('Recovery link sent successfully. Please check your email.');
       }
     } catch (err) {
+      console.error('Send recovery email error:', err);
       setForgotError('An unexpected error occurred.');
     } finally {
       setForgotLoading(false);
@@ -267,6 +277,7 @@ export default function VoterAuth() {
         }, 3000);
       }
     } catch (err) {
+      console.error('Reset password error:', err);
       setResetError('Failed to reset password.');
     } finally {
       setResetLoading(false);
@@ -351,7 +362,7 @@ export default function VoterAuth() {
                 {/* Connecting lines */}
                 <line x1="136" y1="145" x2="155" y2="155" stroke="rgba(74,157,143,0.2)" strokeWidth="1" strokeDasharray="4 3"/>
                 <line x1="265" y1="165" x2="284" y2="175" stroke="rgba(74,157,143,0.2)" strokeWidth="1" strokeDasharray="4 3"/>
-                <line x1="100" y1="227" x2="155" y2="230" stroke="rgba(74,157,143,0.15)" strokeWidth="1" stroke-dasharray="4 3"/>
+                <line x1="100" y1="227" x2="155" y2="230" stroke="rgba(74,157,143,0.15)" strokeWidth="1" strokeDasharray="4 3"/>
               </svg>
             </div>
 
@@ -404,16 +415,41 @@ export default function VoterAuth() {
                 </div>
                 <div className="field">
                   <label htmlFor="password-input">PASSWORD</label>
-                  <input 
-                    id="password-input" 
-                    type="password" 
-                    placeholder="Enter your password" 
-                    autoComplete="current-password" 
-                    aria-required="true" 
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    disabled={loginLoading}
-                  />
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <input 
+                      id="password-input" 
+                      type={showLoginPass ? "text" : "password"} 
+                      placeholder="Enter your password" 
+                      autoComplete="current-password" 
+                      aria-required="true" 
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      disabled={loginLoading}
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginPass(!showLoginPass)}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text3)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                      tabIndex="-1"
+                    >
+                      {showLoginPass ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <div className="field-check">
                   <label className="check-label"><input type="checkbox" /> Remember me</label>
@@ -468,11 +504,79 @@ export default function VoterAuth() {
                 </div>
                 <div className="field">
                   <label htmlFor="password-create-input">PASSWORD</label>
-                  <input id="password-create-input" type="password" placeholder="Create a strong password" autoComplete="new-password" aria-required="true" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} disabled={registerLoading} />
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <input 
+                      id="password-create-input" 
+                      type={showRegPass ? "text" : "password"} 
+                      placeholder="Create a strong password" 
+                      autoComplete="new-password" 
+                      aria-required="true" 
+                      value={regPassword} 
+                      onChange={(e) => setRegPassword(e.target.value)} 
+                      disabled={registerLoading} 
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPass(!showRegPass)}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text3)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                      tabIndex="-1"
+                    >
+                      {showRegPass ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <div className="field">
                   <label htmlFor="password-confirm-input">CONFIRM PASSWORD</label>
-                  <input id="password-confirm-input" type="password" placeholder="Repeat your password" autoComplete="new-password" aria-required="true" value={regConfirmPassword} onChange={(e) => setRegConfirmPassword(e.target.value)} disabled={registerLoading} />
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <input 
+                      id="password-confirm-input" 
+                      type={showRegConfirmPass ? "text" : "password"} 
+                      placeholder="Repeat your password" 
+                      autoComplete="new-password" 
+                      aria-required="true" 
+                      value={regConfirmPassword} 
+                      onChange={(e) => setRegConfirmPassword(e.target.value)} 
+                      disabled={registerLoading} 
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegConfirmPass(!showRegConfirmPass)}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text3)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                      tabIndex="-1"
+                    >
+                      {showRegConfirmPass ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <button className="btn-main" onClick={handleRegister} disabled={registerLoading}>
                   {registerLoading ? 'Creating Account...' : 'Register'}
@@ -609,27 +713,77 @@ export default function VoterAuth() {
 
                 <div className="field">
                   <label htmlFor="reset-password-input">NEW PASSWORD</label>
-                  <input 
-                    id="reset-password-input" 
-                    type="password" 
-                    placeholder="Enter new password" 
-                    value={resetPassword} 
-                    onChange={(e) => setResetPassword(e.target.value)} 
-                    disabled={resetLoading || resetSuccess} 
-                    aria-required="true"
-                  />
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <input 
+                      id="reset-password-input" 
+                      type={showResetPass ? "text" : "password"} 
+                      placeholder="Enter new password" 
+                      value={resetPassword} 
+                      onChange={(e) => setResetPassword(e.target.value)} 
+                      disabled={resetLoading || resetSuccess} 
+                      aria-required="true"
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowResetPass(!showResetPass)}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text3)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                      tabIndex="-1"
+                    >
+                      {showResetPass ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <div className="field">
                   <label htmlFor="reset-confirm-input">CONFIRM NEW PASSWORD</label>
-                  <input 
-                    id="reset-confirm-input" 
-                    type="password" 
-                    placeholder="Confirm new password" 
-                    value={resetConfirmPassword} 
-                    onChange={(e) => setResetConfirmPassword(e.target.value)} 
-                    disabled={resetLoading || resetSuccess} 
-                    aria-required="true"
-                  />
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <input 
+                      id="reset-confirm-input" 
+                      type={showResetConfirmPass ? "text" : "password"} 
+                      placeholder="Confirm new password" 
+                      value={resetConfirmPassword} 
+                      onChange={(e) => setResetConfirmPassword(e.target.value)} 
+                      disabled={resetLoading || resetSuccess} 
+                      aria-required="true"
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowResetConfirmPass(!showResetConfirmPass)}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text3)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                      tabIndex="-1"
+                    >
+                      {showResetConfirmPass ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <button className="btn-main" onClick={handleResetPassword} disabled={resetLoading || resetSuccess}>
                   {resetLoading ? 'Updating Password...' : 'Update Password'}
