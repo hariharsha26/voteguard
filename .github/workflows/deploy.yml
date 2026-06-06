@@ -1,0 +1,85 @@
+name: VoteGuard Production Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  validate_secrets:
+    name: Validate Environment Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert Required Secrets Presence
+        run: |
+          missing=()
+          [ -z "${{ secrets.SUPABASE_URL }}" ] && missing+=("SUPABASE_URL")
+          [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ] && missing+=("SUPABASE_ANON_KEY")
+          [ -z "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" ] && missing+=("SUPABASE_SERVICE_ROLE_KEY")
+          [ -z "${{ secrets.SUPABASE_ACCESS_TOKEN }}" ] && missing+=("SUPABASE_ACCESS_TOKEN")
+          [ -z "${{ secrets.SUPABASE_PROJECT_ID }}" ] && missing+=("SUPABASE_PROJECT_ID")
+          [ -z "${{ secrets.RESEND_API_KEY }}" ] && missing+=("RESEND_API_KEY")
+          [ -z "${{ secrets.RESEND_FROM_EMAIL }}" ] && missing+=("RESEND_FROM_EMAIL")
+          [ -z "${{ secrets.RESEND_FROM_NAME }}" ] && missing+=("RESEND_FROM_NAME")
+          [ -z "${{ secrets.APP_ENV }}" ] && missing+=("APP_ENV")
+          
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "[ERROR] Missing critical environment secrets: ${missing[*]}"
+            exit 1
+          else
+            echo "[SUCCESS] All critical environment secrets are configured."
+          fi
+
+  build_and_test:
+    name: Build & Test Suite Verification
+    needs: validate_secrets
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+      RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+      APP_ENV: ${{ secrets.APP_ENV }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run ESLint Checks
+        run: npm run lint
+
+      - name: Run Vite Production Build
+        run: npm run build
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Validate Supabase SQL Migrations
+        run: |
+          supabase db lint
+          # Run dry-run migration test if configured
+          # supabase db test or dry-run checks against project_id
+          echo "SQL database migrations successfully linted."
+
+      - name: Execute Security Verification Suite
+        run: node verify_security.js
+
+      - name: Execute Production Readiness Suite
+        run: node verify_production_readiness.js

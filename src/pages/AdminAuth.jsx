@@ -4,20 +4,18 @@ import LogoMark from '../components/LogoMark';
 import OtpInput from '../components/OtpInput';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/AdminAuth.css';
-import { IconDeviceMobile, IconShield, IconClipboardList, IconBolt, IconLock, IconMail, IconEye, IconEyeOff } from '@tabler/icons-react';
+import { IconShield, IconClipboardList, IconBolt, IconLock, IconEye, IconEyeOff } from '@tabler/icons-react';
 import { supabase } from '../lib/supabaseClient';
 
 export default function AdminAuth() {
-  const [view, setView] = useState('login'); // 'login' | 'otp-channel' | 'otp-enter'
+  const [view, setView] = useState('login'); // 'login' | 'otp-sending' | 'otp-enter'
   const [adminId, setAdminId] = useState('');
   const [adminPass, setAdminPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [failCount, setFailCount] = useState(0);
   const [locked, setLocked] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  const [otpChannel, setOtpChannel] = useState('email');
   const [otpTimer, setOtpTimer] = useState(300); // 5:00 in seconds
-  const [otpSent, setOtpSent] = useState(false);
   const [inputErrors, setInputErrors] = useState(false);
 
   const navigate = useNavigate();
@@ -59,6 +57,26 @@ export default function AdminAuth() {
     return () => clearInterval(otpTimerRef.current);
   }, [view, otpTimer]);
 
+  const [productionLock, setProductionLock] = useState(false);
+
+  useEffect(() => {
+    const checkProdLock = async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'production_lock')
+          .maybeSingle();
+        if (data && data.value === 'true') {
+          setProductionLock(true);
+        }
+      } catch (err) {
+        console.error('Failed to fetch production lock status:', err);
+      }
+    };
+    checkProdLock();
+  }, []);
+
   const handleAdminIdChange = (e) => {
     const val = e.target.value;
     if (val.length <= 16) {
@@ -71,21 +89,18 @@ export default function AdminAuth() {
     if (locked) return;
 
     try {
-      // 1. Look up email by admin id in super_admins table
-      const { data: adminRecord, error: lookupError } = await supabase
-        .from('super_admins')
-        .select('email')
-        .eq('admin_id', adminId.trim().toUpperCase())
-        .maybeSingle();
+      // 1. Look up email by admin id using RPC function
+      const { data: adminEmail, error: lookupError } = await supabase
+        .rpc('get_admin_email_by_id', { p_admin_id: adminId.trim().toUpperCase() });
 
-      if (lookupError || !adminRecord) {
+      if (lookupError || !adminEmail) {
         handleFail();
         return;
       }
 
       // 2. Sign in with password using retrieved email
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: adminRecord.email,
+        email: adminEmail,
         password: adminPass,
       });
 
@@ -103,7 +118,10 @@ export default function AdminAuth() {
         return;
       }
 
-      setView('otp-channel');
+      setView('otp-sending');
+      setTimeout(() => {
+        handleSendOTP({ preventDefault: () => {} });
+      }, 50);
     } catch (err) {
       console.error('Admin Auth first-stage error:', err);
       handleFail();
@@ -140,11 +158,13 @@ export default function AdminAuth() {
       }
 
       const { debug_otp } = data[0] || {};
-      if (debug_otp) {
+      const isProd = import.meta.env.VITE_APP_ENV === 'production' || productionLock;
+      if (debug_otp && !isProd) {
         setDebugOtpCode(debug_otp);
+      } else {
+        setDebugOtpCode('');
       }
 
-      setOtpSent(true);
       setOtpTimer(300); // Reset timer
       setView('otp-enter');
     } catch (err) {
@@ -404,57 +424,29 @@ export default function AdminAuth() {
               </div>
             )}
 
-            {/* VIEW 2: OTP CHANNEL SELECT */}
-            {view === 'otp-channel' && (
-              <div className="form-view active">
-                <div className="back-link" onClick={() => setView('login')}>← Back</div>
-                <div className="admin-access-badge">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M6 1L2 2.5v3.5c0 2.8 1.8 5.2 4 6 2.2-.8 4-3.2 4-6V2.5L6 1z" stroke="#d4a843" strokeWidth={1} fill="rgba(212,168,67,0.2)"/>
-                  </svg>
-                  Two-Factor Authentication
-                </div>
-                <div className="card-title">Verify Identity</div>
-                <div className="card-sub" style={{ marginBottom: '24px' }}>Choose where to receive your verification code</div>
-
-                <div className="otp-channel">
-                  <div className={`otp-opt ${otpChannel === 'email' ? 'sel' : ''}`} onClick={() => setOtpChannel('email')}><IconMail size={18} style={{marginRight: 8}}/> Email</div>
-                  <div className={`otp-opt ${otpChannel === 'phone' ? 'sel' : ''}`} onClick={() => setOtpChannel('phone')}><IconDeviceMobile size={18} style={{marginRight: 8}}/> Phone</div>
-                </div>
-
-                <button 
-                  className="btn-main gold" 
-                  style={{
-                    background: otpSent ? 'rgba(74,157,143,0.2)' : '',
-                    color: otpSent ? '#4a9d8f' : '',
-                    border: otpSent ? '1px solid rgba(74,157,143,0.3)' : ''
-                  }}
-                  onClick={handleSendOTP}
-                >
-                  {otpSent ? 'Code Sent ✓' : 'Send OTP'}
-                </button>
-
-                <div className="sec-panel" style={{ gridTemplateColumns: '1fr', marginTop: '18px' }}>
-                  <div className="sec-item"><div className="sec-dot"></div>Code expires in 5 minutes</div>
-                  <div className="sec-item"><div className="sec-dot"></div>Session locked to this device</div>
-                </div>
+            {/* VIEW 2: OTP SENDING LOADING */}
+            {view === 'otp-sending' && (
+              <div className="form-view active" style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                <div className="secure-loading-spinner" style={{ borderColor: 'rgba(212,168,67,0.2)', borderTopColor: 'var(--gold)', borderWidth: '3px', borderStyle: 'solid', borderRadius: '50%', width: '40px', height: '40px', animation: 'spin 1s linear infinite' }} />
+                <div style={{ fontSize: '15px', fontWeight: '650', color: 'var(--text)' }}>Contacting Dispatcher</div>
+                <div style={{ fontSize: '12.5px', color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>Preparing secure verification channel...</div>
               </div>
             )}
 
             {/* VIEW 3: OTP ENTER */}
             {view === 'otp-enter' && (
               <div className="form-view active">
-                <div className="back-link" onClick={() => setView('otp-channel')}>← Back</div>
+                <div className="back-link" onClick={() => setView('login')}>← Back</div>
                 <div className="card-title">Enter Verification Code</div>
                 <div className="card-sub" style={{ marginBottom: '8px' }}>Admin Access · 2FA Required</div>
 
-                <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' }}>Code sent to your registered contact</div>
+                <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' }}>Code sent to your registered email</div>
                 <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '4px' }}>
                   Expires in <span style={{ color: 'var(--gold)', fontFamily: 'var(--mono)' }}>{formatOtpTimer(otpTimer)}</span>
                 </div>
 
                 {verificationError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{verificationError}</div>}
-                {debugOtpCode && (
+                {debugOtpCode && import.meta.env.VITE_APP_ENV !== 'production' && !productionLock && (
                   <div className="info-banner show" style={{ marginBottom: 16, padding: '10px', background: 'rgba(212,168,67,0.1)', border: '1px solid rgba(212,168,67,0.3)', borderRadius: '6px', fontSize: '12.5px', color: 'var(--gold)', fontWeight: '600', textAlign: 'center' }}>
                     Development Mode: Use verification code <strong>{debugOtpCode}</strong>
                   </div>

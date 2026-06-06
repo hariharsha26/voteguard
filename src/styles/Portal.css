@@ -444,15 +444,15 @@
 [data-theme="light"] .portal-page,
 [data-theme="light"] .portal-ambient {
   background:
-    linear-gradient(135deg, rgba(8,127,111,0.07), transparent 36%),
-    linear-gradient(315deg, rgba(86,100,210,0.045), transparent 42%),
+    linear-gradient(135deg, rgba(29, 78, 216, 0.045), transparent 36%),
+    linear-gradient(315deg, rgba(67, 56, 202, 0.035), transparent 42%),
     var(--bg);
 }
 
 [data-theme="light"] .portal-grid-bg {
   background-image:
-    linear-gradient(rgba(8,127,111,0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15,23,42,0.045) 1px, transparent 1px);
+    linear-gradient(rgba(29, 78, 216, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.03) 1px, transparent 1px);
 }
 
 [data-theme="light"] .portal-nav,

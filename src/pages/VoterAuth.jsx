@@ -4,13 +4,12 @@ import LogoMark from '../components/LogoMark';
 import OtpInput from '../components/OtpInput';
 import ThemeToggle from '../components/ThemeToggle';
 import '../styles/voter-auth.css';
-import { IconMail, IconDeviceMobile, IconEye, IconEyeOff } from '@tabler/icons-react';
+import { IconEye, IconEyeOff } from '@tabler/icons-react';
 import { supabase } from '../lib/supabaseClient';
 
 export default function VoterAuth() {
   const [view, setView] = useState('login'); // 'login' | 'register' | 'otp' | 'forgot'
-  const [otpChannel, setOtpChannel] = useState('email'); // 'email' | 'phone'
-  const [otpState, setOtpState] = useState('idle'); // 'idle' | 'sending' | 'sent' | 'verifying' | 'success'
+  const [otpState, setOtpState] = useState('sending'); // 'sending' | 'sent' | 'verifying' | 'success'
   const [otpProgressMessage, setOtpProgressMessage] = useState('');
   
   // Registration States
@@ -18,7 +17,6 @@ export default function VoterAuth() {
   const [regRollNumber, setRegRollNumber] = useState('');
   const [regDept, setRegDept] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [showRegPass, setShowRegPass] = useState(false);
@@ -54,6 +52,8 @@ export default function VoterAuth() {
 
   const navigate = useNavigate();
 
+  const [productionLock, setProductionLock] = useState(false);
+
   useEffect(() => {
     // Listen for password recovery event
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
@@ -61,6 +61,22 @@ export default function VoterAuth() {
         setView('reset');
       }
     });
+
+    const checkProdLock = async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'production_lock')
+          .maybeSingle();
+        if (data && data.value === 'true') {
+          setProductionLock(true);
+        }
+      } catch (err) {
+        console.error('Failed to fetch production lock status:', err);
+      }
+    };
+    checkProdLock();
 
     return () => {
       subscription.unsubscribe();
@@ -103,7 +119,10 @@ export default function VoterAuth() {
       }
 
       setView('otp');
-      setOtpState('idle');
+      setOtpState('sending');
+      setTimeout(() => {
+        handleSendOTP();
+      }, 50);
     } catch (err) {
       console.error('Login error:', err);
       setLoginError('An unexpected authentication error occurred.');
@@ -134,8 +153,7 @@ export default function VoterAuth() {
           data: {
             roll_number: regRollNumber.trim().toUpperCase(),
             full_name: regFullName.trim(),
-            department: regDept.trim().toUpperCase(),
-            phone_number: regPhone.trim()
+            department: regDept.trim().toUpperCase()
           }
         }
       });
@@ -153,7 +171,10 @@ export default function VoterAuth() {
       }
 
       setView('otp');
-      setOtpState('idle');
+      setOtpState('sending');
+      setTimeout(() => {
+        handleSendOTP();
+      }, 50);
     } catch (err) {
       console.error('Registration error:', err);
       setRegisterError('An unexpected registration error occurred.');
@@ -178,8 +199,11 @@ export default function VoterAuth() {
       }
 
       const { debug_otp } = data[0] || {};
-      if (debug_otp) {
+      const isProd = import.meta.env.VITE_APP_ENV === 'production' || productionLock;
+      if (debug_otp && !isProd) {
         setDebugOtpCode(debug_otp);
+      } else {
+        setDebugOtpCode('');
       }
 
       setOtpState('sent');
@@ -495,13 +519,6 @@ export default function VoterAuth() {
                   <label htmlFor="email-input">EMAIL ADDRESS</label>
                   <input id="email-input" type="email" placeholder="you@institution.edu" autoComplete="email" aria-required="true" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} disabled={registerLoading} />
                 </div>
-                <div className="field-row">
-                  <div className="field">
-                    <label htmlFor="phone-input">PHONE NUMBER</label>
-                    <input id="phone-input" type="tel" placeholder="+91 9XXXXXXXXX" autoComplete="tel" value={regPhone} onChange={(e) => setRegPhone(e.target.value)} disabled={registerLoading} />
-                  </div>
-                  <div className="field" style={{ flex: 0 }}></div>
-                </div>
                 <div className="field">
                   <label htmlFor="password-create-input">PASSWORD</label>
                   <div style={{ position: 'relative', width: '100%' }}>
@@ -588,28 +605,7 @@ export default function VoterAuth() {
             {/* OTP VIEW */}
             {view === 'otp' && (
               <div className="form-view active">
-                {/* 1. IDLE / CHANNEL SELECT STATE */}
-                {otpState === 'idle' && (
-                  <>
-                    <div className="back-link" onClick={() => setView('login')}><span className="back-arrow">←</span> Back</div>
-                    <div className="card-title">Identity Verification</div>
-                    <div className="card-sub" style={{ marginBottom: '24px' }}>Choose your preferred channel to receive a secure one-time passcode (OTP).</div>
-
-                    <div style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px', fontWeight: '600' }}>Select Verification Channel</div>
-                    <div className="otp-channel" style={{ marginBottom: '24px' }}>
-                      <div className={`otp-opt ${otpChannel === 'email' ? 'sel' : ''}`} onClick={() => setOtpChannel('email')}>
-                        <IconMail size={18} style={{marginRight: 8}}/> Email OTP
-                      </div>
-                      <div className={`otp-opt ${otpChannel === 'phone' ? 'sel' : ''}`} onClick={() => setOtpChannel('phone')}>
-                        <IconDeviceMobile size={18} style={{marginRight: 8}}/> Mobile OTP
-                      </div>
-                    </div>
-
-                    <button className="btn-main" onClick={handleSendOTP}>Send Verification Code</button>
-                  </>
-                )}
-
-                {/* 2. SENDING STATE OVERLAY */}
+                {/* 1. SENDING STATE OVERLAY */}
                 {otpState === 'sending' && (
                   <div style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
                     <div className="secure-loading-spinner" />
@@ -618,17 +614,17 @@ export default function VoterAuth() {
                   </div>
                 )}
 
-                {/* 3. CODE ENTRY STATE */}
+                {/* 2. CODE ENTRY STATE */}
                 {otpState === 'sent' && (
                   <>
-                    <div className="back-link" onClick={() => setOtpState('idle')}><span className="back-arrow">←</span> Change Channel</div>
+                    <div className="back-link" onClick={() => setView('login')}><span className="back-arrow">←</span> Back to Login</div>
                     <div className="card-title">Enter Security Code</div>
                     <div className="card-sub" style={{ marginBottom: '24px' }}>
-                      A 6-digit verification code has been sent to your registered {otpChannel === 'email' ? 'email address' : 'mobile phone'}.
+                      A 6-digit verification code has been sent to your registered email address.
                     </div>
 
                     {verificationError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{verificationError}</div>}
-                    {debugOtpCode && (
+                    {debugOtpCode && import.meta.env.VITE_APP_ENV !== 'production' && !productionLock && (
                       <div className="info-banner show" style={{ marginBottom: 16, padding: '10px', background: 'rgba(74, 157, 143, 0.1)', border: '1px solid rgba(74, 157, 143, 0.3)', borderRadius: '6px', fontSize: '12.5px', color: 'var(--teal)', fontWeight: '600', textAlign: 'center' }}>
                         Development Mode: Use verification code <strong>{debugOtpCode}</strong>
                       </div>

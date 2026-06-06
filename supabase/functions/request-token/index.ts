@@ -7,8 +7,6 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -40,6 +38,23 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Initialize admin/service client
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false }
+    })
+
+    // Fetch production lock status from system_settings
+    const { data: prodLockSetting } = await supabaseAdmin
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'production_lock')
+      .maybeSingle()
+
+    const isProductionLockActive = prodLockSetting?.value === 'true'
+    const appEnv = Deno.env.get('APP_ENV') || 'development'
+    const isProd = isProductionLockActive || appEnv === 'production'
+
     // Parse request body
     const { election_id } = await req.json()
     if (!election_id) {
@@ -61,7 +76,7 @@ Deno.serve(async (req) => {
     // 4. Fetch voter profile details
     const { data: voter, error: voterError } = await supabaseClient
       .from('voters')
-      .select('roll_number, email')
+      .select('roll_number, email, full_name')
       .eq('auth_user_id', user.id)
       .single()
 
@@ -72,10 +87,20 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Block test account logins/token requests if production lock is active
+    if (isProd) {
+      if (voter.roll_number === '25L35A4416' || voter.email === 'hariharshahello@gmail.com') {
+        return new Response(
+          JSON.stringify({ error: 'Development test accounts are disabled under production lock.' }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+    }
+
     // 5. Fetch election details
     const { data: election, error: elError } = await supabaseClient
       .from('elections')
-      .select('election_code, status')
+      .select('election_code, status, election_name')
       .eq('id', election_id)
       .single()
 
@@ -114,7 +139,6 @@ Deno.serve(async (req) => {
     const tokenHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
 
     // 8. Commit token hash to database
-    // We execute the commit via supabaseClient using voter's JWT
     const { error: rpcError } = await supabaseClient.rpc('request_election_token', {
       p_election_id: election_id,
       p_token_hash: tokenHash
@@ -127,28 +151,97 @@ Deno.serve(async (req) => {
       )
     }
 
-    // 9. Send Email Dispatch Simulation
-    // Log plaintext token locally only (for local DX/dev logs)
-    console.log(`[EMAIL DISPATCH] Sent VoteGuard Secure Voting Token to ${voter.email}. Token: ${plainToken}`)
+    // 9. Send Email Dispatch
+    let emailStatus = 'delivered'
+    let emailError = ''
 
-    // Create an admin/service client to insert audit log for 'Token Delivered'
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false }
-    })
+    if (isProd) {
+      const resendApiKey = Deno.env.get('RESEND_API_KEY') || ''
+      const resendFromEmail = Deno.env.get('RESEND_FROM_EMAIL') || 'noreply@resend.dev'
+      const resendFromName = Deno.env.get('RESEND_FROM_NAME') || 'VoteGuard'
 
+      if (!resendApiKey) {
+        emailStatus = 'failed'
+        emailError = 'RESEND_API_KEY environment variable is missing.'
+        console.error(emailError)
+      } else {
+        try {
+          const emailResponse = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${resendApiKey}`
+            },
+            body: JSON.stringify({
+              from: `${resendFromName} <${resendFromEmail}>`,
+              to: voter.email,
+              subject: `VoteGuard Voting Token – ${election.election_name}`,
+              text: `Hello ${voter.full_name},\n\nYour voting token for ${election.election_name} has been generated.\n\nVoting Token:\n\n${plainToken}\n\nThis token is confidential and may only be used once.\n\nDo not share this token with anyone.\n\nVoteGuard Election System`,
+              html: `
+                <div style="font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px; line-height: 1.6; color: #333;">
+                  <p>Hello <strong>${voter.full_name}</strong>,</p>
+                  <p>Your voting token for <strong>${election.election_name}</strong> has been generated.</p>
+                  <p>Voting Token:</p>
+                  <div style="background: #f7f7f7; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 20px; font-weight: bold; text-align: center; margin: 20px 0; border: 1px dashed #4a9d8f; letter-spacing: 1px; color: #333;">
+                    ${plainToken}
+                  </div>
+                  <p>This token is confidential and may only be used once.</p>
+                  <p>Do not share this token with anyone.</p>
+                  <p style="margin-top: 24px; border-top: 1px solid #eee; padding-top: 16px; font-size: 14px; color: #555; font-weight: 550;">
+                    VoteGuard Election System
+                  </p>
+                </div>
+              `
+            })
+          })
+
+          if (!emailResponse.ok) {
+            const errText = await emailResponse.text()
+            emailStatus = 'failed'
+            emailError = `Resend API Error: ${errText}`
+            console.error(emailError)
+          }
+        } catch (e) {
+          emailStatus = 'failed'
+          emailError = e instanceof Error ? e.message : 'Unknown email transmission error'
+          console.error(emailError)
+        }
+      }
+
+      // Log email delivery log (privacy-first)
+      await supabaseAdmin.from('email_delivery_logs').insert({
+        recipient_identifier: voter.roll_number,
+        delivery_type: 'TOKEN_EMAIL',
+        status: emailStatus,
+        error_message: emailError ? emailError : null
+      })
+
+    } else {
+      // In development mode, simulate dispatch
+      console.log(`[EMAIL DISPATCH] Sent VoteGuard Secure Voting Token to ${voter.email}. Token: ${plainToken}`)
+      
+      await supabaseAdmin.from('email_delivery_logs').insert({
+        recipient_identifier: voter.roll_number,
+        delivery_type: 'TOKEN_EMAIL',
+        status: 'delivered'
+      })
+    }
+
+    // Insert audit log
     await supabaseAdmin.from('audit_logs').insert({
       event_type: 'Token Delivered',
       actor: voter.roll_number,
-      details: 'Secure token dispatched via simulated email channel successfully.'
+      details: isProd 
+        ? 'Secure token dispatched via real Resend email channel.' 
+        : 'Secure token dispatched via simulated email channel successfully.'
     })
 
-    // Return the generated plain token in the response so the frontend can display it in debug mode
+    // Return the generated plain token ONLY in development mode (isProd === false)
     return new Response(
       JSON.stringify({
         success: true,
         message: 'Token generated and sent successfully.',
-        token: plainToken
+        token: isProd ? null : plainToken
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
@@ -161,4 +254,3 @@ Deno.serve(async (req) => {
     )
   }
 })
-

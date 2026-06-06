@@ -196,17 +196,18 @@
 /* BUTTONS */
 .admin-auth-page .btn-main {
   width: 100%; padding: 13px;
-  background: var(--text); color: var(--bg);
+  background: var(--btn-main-bg, var(--text)); color: var(--btn-main-text, var(--bg));
   border: none; border-radius: var(--radius-sm);
   font-family: var(--font); font-size: 14px; font-weight: 500;
-  cursor: pointer; transition: background 0.2s, transform 0.15s;
+  cursor: pointer; transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
   margin-bottom: 0;
+  box-shadow: var(--shadow-tight);
 }
-.admin-auth-page .btn-main:hover { background: #d4d3dc; transform: translateY(-1px); }
+.admin-auth-page .btn-main:hover { background: var(--btn-main-hover-bg, #d4d3dc); transform: translateY(-1px); box-shadow: var(--shadow-soft); }
 .admin-auth-page .btn-main.gold {
-  background: var(--gold); color: #1a1000;
+  background: var(--btn-gold-bg, var(--gold)); color: var(--btn-gold-text, #1a1000);
 }
-.admin-auth-page .btn-main.gold:hover { background: #e0b84e; }
+.admin-auth-page .btn-main.gold:hover { background: var(--btn-gold-hover-bg, #e0b84e); }
 
 /* ERROR BANNER */
 .admin-auth-page .error-banner {
@@ -277,51 +278,67 @@
 
 /* ─── LIGHT THEME OVERRIDES ─── */
 [data-theme="light"] .admin-auth-page {
-  --bg: #f5f5f8;
-  --bg2: #ffffff;
-  --bg3: #efeff4;
-  --glass: rgba(255,255,255,0.7);
-  --glass2: rgba(255,255,255,0.85);
-  --border: rgba(0,0,0,0.08);
-  --border2: rgba(0,0,0,0.12);
-  --text: #18181b;
-  --text2: #555562;
-  --text3: #8e8e9c;
-  --gold: #a97e28;
-  --gold2: rgba(169, 126, 40, 0.08);
-  --gold3: rgba(169, 126, 40, 0.18);
-  --teal: #387b70;
-  --teal2: rgba(56, 123, 112, 0.08);
-  --red: #b93a3a;
-  --red2: rgba(185, 58, 58, 0.08);
-  --red3: rgba(185, 58, 58, 0.18);
+  --bg: var(--bg);
+  --bg2: var(--bg2);
+  --bg3: var(--bg3);
+  --glass: var(--glass);
+  --glass2: var(--glass2);
+  --border: var(--border);
+  --border2: var(--border2);
+  --text: var(--text);
+  --text2: var(--text2);
+  --text3: var(--text3);
+  --gold: var(--gold);
+  --gold2: var(--gold2);
+  --gold3: var(--gold3);
+  --teal: var(--teal);
+  --teal2: var(--teal2);
+  --red: var(--red);
+  --red2: var(--red2);
+  --red3: var(--red3);
 }
 [data-theme="light"] .admin-auth-page .left-panel::before {
   background:
-    radial-gradient(ellipse at 25% 35%, rgba(169,126,40,0.06) 0%, transparent 55%),
-    radial-gradient(ellipse at 75% 75%, rgba(56,123,112,0.04) 0%, transparent 50%);
+    radial-gradient(ellipse at 25% 35%, rgba(180, 83, 9, 0.05) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 75%, rgba(29, 78, 216, 0.03) 0%, transparent 50%);
 }
 [data-theme="light"] .admin-auth-page .auth-card {
-  box-shadow: 0 20px 48px rgba(0,0,0,0.04);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
 }
-[data-theme="light"] .admin-auth-page .field input {
-  background: rgba(0,0,0,0.02);
+[data-theme="light"] .admin-auth-page .field input,
+[data-theme="light"] .admin-auth-page .field select {
+  background: #ffffff;
+  border: 1px solid var(--border2);
+  color: var(--text);
 }
-[data-theme="light"] .admin-auth-page .field input:focus {
-  background: var(--gold2);
+[data-theme="light"] .admin-auth-page .field input:focus,
+[data-theme="light"] .admin-auth-page .field select:focus {
+  border-color: var(--gold);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px var(--gold2);
 }
 [data-theme="light"] .admin-auth-page .otp-opt {
-  background: rgba(0,0,0,0.02);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text2);
 }
 [data-theme="light"] .admin-auth-page .otp-opt.sel {
   background: var(--gold2);
-  border-color: var(--gold3);
+  border-color: var(--gold);
+  color: var(--gold);
+  font-weight: 600;
 }
 [data-theme="light"] .admin-auth-page .otp-wrap input {
-  background: rgba(0,0,0,0.02);
+  background: #ffffff;
+  border: 1px solid var(--border2);
+  color: var(--text);
 }
 [data-theme="light"] .admin-auth-page .otp-wrap input:focus {
-  background: var(--gold2);
+  border-color: var(--gold);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px var(--gold2);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -426,32 +443,42 @@
 }
 
 [data-theme="light"] .admin-auth-page {
-  --bg: #f4f7fb;
-  --bg2: #ffffff;
-  --bg3: #edf2f7;
-  --glass: rgba(255,255,255,0.78);
-  --glass2: rgba(255,255,255,0.92);
-  --border: rgba(15,23,42,0.11);
-  --border2: rgba(15,23,42,0.18);
-  --text: #121722;
-  --text2: #4f5f73;
-  --text3: #7a8798;
-  --gold: #aa741c;
-  --gold2: rgba(170,116,28,0.08);
-  --gold3: rgba(170,116,28,0.18);
-  --teal: #087f6f;
-  --teal2: rgba(8,127,111,0.09);
-  --red: #c24141;
-  --red2: rgba(194,65,65,0.08);
+  --bg: var(--bg);
+  --bg2: var(--bg2);
+  --bg3: var(--bg3);
+  --glass: var(--glass);
+  --glass2: var(--glass2);
+  --border: var(--border);
+  --border2: var(--border2);
+  --text: var(--text);
+  --text2: var(--text2);
+  --text3: var(--text3);
+  --gold: var(--gold);
+  --gold2: var(--gold2);
+  --gold3: var(--gold3);
+  --teal: var(--teal);
+  --teal2: var(--teal2);
+  --red: var(--red);
+  --red2: var(--red2);
   background:
-    linear-gradient(135deg, rgba(170,116,28,0.09), transparent 32%),
-    linear-gradient(315deg, rgba(8,127,111,0.065), transparent 42%),
+    linear-gradient(135deg, rgba(180, 83, 9, 0.035), transparent 32%),
+    linear-gradient(315deg, rgba(29, 78, 216, 0.045), transparent 42%),
     var(--bg);
 }
 
-[data-theme="light"] .admin-auth-page .left-panel,
-[data-theme="light"] .admin-auth-page .right-panel,
-[data-theme="light"] .admin-auth-page .auth-card,
+[data-theme="light"] .admin-auth-page .left-panel {
+  background: var(--bg3);
+  border-right: 1px solid var(--border);
+}
+[data-theme="light"] .admin-auth-page .right-panel {
+  background: var(--bg);
+}
+[data-theme="light"] .admin-auth-page .auth-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
 [data-theme="light"] .admin-auth-page .sec-panel {
-  background: rgba(255,255,255,0.84);
+  background: var(--bg3);
+  border: 1px solid var(--border);
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import VoterNavigation from '../components/VoterNavigation';
 import SpotlightCard from '../components/ReactBits/SpotlightCard';
@@ -10,21 +10,39 @@ import { supabase } from '../lib/supabaseClient';
 export default function VoterDashboard() {
   const navigate = useNavigate();
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [productionLock, setProductionLock] = useState(false);
+
+  useEffect(() => {
+    const checkProdLock = async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'production_lock')
+          .maybeSingle();
+        if (data && data.value === 'true') {
+          setProductionLock(true);
+        }
+      } catch (err) {
+        console.error('Failed to fetch production lock status:', err);
+      }
+    };
+    checkProdLock();
+  }, []);
 
   // 1. Core Voter Information
   const [voter, setVoter] = useState({
-    name: 'Aarav Mehta',
-    userId: 'VG20260087',
-    department: 'Computer Science & Engineering',
-    rollNumber: '21BCE087',
-    institution: 'Vidyavardhini Institute of Technology',
-    year: '3rd Year',
-    email: 'aarav.mehta@vit.edu',
-    phone: '+91 98765 43210',
-    electionStatus: 'Active & Eligible',
-    memberSince: '14 Aug 2024',
-    accountStatus: 'Active',
-    avatarUrl: '/aarav_mehta_avatar.png'
+    name: '',
+    userId: '',
+    department: '',
+    rollNumber: '',
+    institution: '',
+    year: '',
+    email: '',
+    electionStatus: '',
+    memberSince: '',
+    accountStatus: '',
+    avatarUrl: ''
   });
 
   // 2. Navigation Active Tab State
@@ -32,96 +50,7 @@ export default function VoterDashboard() {
   const [editingProfile, setEditingProfile] = useState(false);
 
   // 3. Simulated Elections Database
-  const [elections, setElections] = useState([
-    {
-      id: 'ELC-2026-CR',
-      name: 'CR Election 2026',
-      description: 'Annual Class Representative Election for final year CSE students. Choose your representative to voice concerns on curriculum, infrastructure, and event scheduling.',
-      start: '2026-06-02 09:00 AM',
-      end: '2026-06-02 09:00 PM',
-      rules: [
-        'Each student is entitled to cast exactly one ballot.',
-        'The ballot is completely anonymous and cryptographically hashed.',
-        'Ensure you keep your generated Verification Token safe after voting.',
-        'Polling ends strictly at 09:00 PM.'
-      ],
-      candidates: [
-        {
-          id: 'cand-1',
-          name: 'Aarav Mehta',
-          dept: 'Computer Science & Engineering',
-          photo: 'AM',
-          manifesto: 'Empowering students through technology, open feedback loops, and infrastructure upgrades. Let\'s build a smarter campus experience together.',
-          about: 'Prior Class Rep, tech lead of the university developer club, and open-source advocate.'
-        },
-        {
-          id: 'cand-2',
-          name: 'Priya Sharma',
-          dept: 'Computer Science & Engineering',
-          photo: 'PS',
-          manifesto: 'Fostering an inclusive campus culture, organizing industry-led skill workshops, and securing academic support grants for research.',
-          about: 'Lead organizer of the women in tech cell, debater, and student senator.'
-        }
-      ],
-      voted: false,
-      voteTime: null,
-      verificationToken: null,
-      resultsPublic: false, // Simulated admin setting
-      status: 'Active',
-      type: 'Private'
-    },
-    {
-      id: 'ELC-2026-SEN',
-      name: 'Senate Representative Poll',
-      description: 'Departmental Senate elections to elect representatives for the Academic Council.',
-      start: '2026-06-02 10:00 AM',
-      end: '2026-06-03 05:00 PM',
-      rules: ['Only students with CGPA > 7.0 are eligible to vote.', 'Results will be declared by the Registrar.'],
-      candidates: [
-        {
-          id: 'cand-s1',
-          name: 'Vikram Aditya',
-          dept: 'Electrical Engineering',
-          photo: 'VA',
-          manifesto: 'Advocating for better research lab infrastructure, library hours extension, and interdisciplinary project funding.',
-          about: 'IEEE Student Branch Chair, academic topper, and roboticist.'
-        },
-        {
-          id: 'cand-s2',
-          name: 'Ananya Roy',
-          dept: 'Electronics & Communication',
-          photo: 'AR',
-          manifesto: 'Promoting student mental wellness programs, sports facility upgrades, and annual cultural fest collaborations.',
-          about: 'Vice-President of the Cultural Society, badminton captain, and student counsellor.'
-        }
-      ],
-      voted: false,
-      voteTime: null,
-      verificationToken: null,
-      resultsPublic: false,
-      status: 'Active',
-      type: 'Public'
-    },
-    {
-      id: 'ELC-2025-ALM',
-      name: 'Alumni Association Board Selection',
-      description: 'Alumni-wide polling for the 2025 Board of Directors selection.',
-      start: '2025-05-15 08:00 AM',
-      end: '2025-05-17 08:00 PM',
-      rules: ['Open to all registered graduates of 2023 and 2024 batches.'],
-      candidates: [
-        { name: 'Rajesh Kumar', votes: 1240, percentage: 54 },
-        { name: 'Meera Patel', votes: 850, percentage: 37 },
-        { name: 'Abstain/Invalid', votes: 206, percentage: 9 }
-      ],
-      voted: true,
-      voteTime: '2025-05-16 11:24 AM',
-      verificationToken: 'VG-2025-ALM-X982B',
-      resultsPublic: true,
-      status: 'Completed',
-      type: 'Private'
-    }
-  ]);
+  const [elections, setElections] = useState([]);
 
   // 4. Selected Election for Details View
   const [selectedElection, setSelectedElection] = useState(null);
@@ -159,6 +88,7 @@ export default function VoterDashboard() {
   // Session timeout warning UX (visual only — does not enforce real session expiry)
   const [sessionTimeoutWarning, setSessionTimeoutWarning] = useState(false);
   const [sessionTimeoutSeconds, setSessionTimeoutSeconds] = useState(120);
+  const lastActiveTimeRef = useRef(null);
   const [savedAgoText, setSavedAgoText] = useState('Just now');
 
   // Redesign wizard / verification portal state variables
@@ -171,19 +101,20 @@ export default function VoterDashboard() {
   const [showCryptoDetails, setShowCryptoDetails] = useState(false);
 
   // 7. Simulated Logs / Activity Database (Step 12 Setup)
-  const [logs, setLogs] = useState([
-    { ts: new Date().toLocaleTimeString(), ev: 'OTP_VERIFIED', desc: 'Secure two-factor verification successful via email channel', status: 'ok', payload: { channel: 'email', verified: true } },
-    { ts: new Date().toLocaleTimeString(), ev: 'LOGGED_IN', desc: 'Secure voter session initialized', status: 'ok', payload: { auth_level: 'voter', check_integrity: 'PASS' } }
-  ]);
+  const [logs, setLogs] = useState([]);
 
 
 
   const fetchVoterData = async (userRoll) => {
     try {
+      // 0. Auto-finalize expired active elections first
+      await supabase.rpc('check_and_finalize_expired_elections');
+
+      // 1. Fetch elections (except DRAFT ones)
       const { data: dbElections, error: elError } = await supabase
         .from('elections')
         .select('*')
-        .neq('status', 'Draft')
+        .neq('status', 'DRAFT')
         .order('created_at', { ascending: false });
 
       if (elError) throw elError;
@@ -202,6 +133,16 @@ export default function VoterDashboard() {
         .eq('roll_number', userRoll);
 
       if (partError) throw partError;
+
+      // Fetch election results & summaries
+      const { data: dbResults } = await supabase
+        .from('election_results')
+        .select('*')
+        .order('position_rank', { ascending: true });
+
+      const { data: dbSummaries } = await supabase
+        .from('election_summary')
+        .select('*');
 
       // Fetch votes count (allowed for finalized elections by RLS)
       const { data: dbVotes } = await supabase
@@ -225,15 +166,12 @@ export default function VoterDashboard() {
       }));
 
       const mappedElections = (dbElections || []).map(el => {
-        const part = (dbParticipation || []).find(p => p.election_id === el.id);
+        const part = (dbParticipation || []).find(p => p.election_id === el.id && p.election_round === el.current_round);
         const voted = part ? part.has_voted : false;
         const verificationToken = voted ? `VG-${el.election_code}-${userRoll}` : null;
 
-        let uiStatus = 'Active';
-        if (el.status === 'Completed') uiStatus = 'Completed';
-        else if (el.status === 'Paused') uiStatus = 'Paused';
-        else if (el.status === 'Emergency_Stopped') uiStatus = 'Emergency_Locked';
-        else if (el.status === 'Draw / Deadlock') uiStatus = 'Draw / Deadlock';
+        const summary = (dbSummaries || []).find(s => s.election_id === el.id && s.election_round === el.current_round);
+        const results = (dbResults || []).filter(r => r.election_id === el.id && r.election_round === el.current_round);
 
         const elCands = mappedCandidates.filter(c => {
           const dbCand = dbCandidates.find(dbc => dbc.id === c.id);
@@ -255,13 +193,17 @@ export default function VoterDashboard() {
           voted: voted,
           voteTime: voted ? 'Recorded' : null,
           verificationToken: verificationToken,
-          resultsPublic: el.status === 'Completed' || el.status === 'Draw / Deadlock',
-          status: uiStatus,
+          resultsPublic: el.status === 'COMPLETED' || el.status === 'STOPPED',
+          status: el.status,
           type: el.election_type,
           accessCode: el.access_code || '',
-          draw: el.status === 'Draw / Deadlock',
+          draw: el.status === 'DEADLOCK',
           jointWinner: el.joint_winners,
-          winners: el.winners
+          winners: el.winners,
+          results: results,
+          summary: summary,
+          voters: summary ? Number(summary.total_eligible_voters) : elCands.reduce((sum, c) => sum + c.votes, 0),
+          votesCast: summary ? Number(summary.total_votes) : elCands.reduce((sum, c) => sum + c.votes, 0)
         };
       });
 
@@ -315,12 +257,15 @@ export default function VoterDashboard() {
             institution: 'Vidyavardhini Institute of Technology',
             year: 'Voter Account',
             email: profile.email,
-            phone: profile.phone_number || '',
             electionStatus: 'Active & Eligible',
             memberSince: new Date(profile.created_at).toLocaleDateString(),
             accountStatus: 'Active',
             avatarUrl: '/aarav_mehta_avatar.png'
           });
+          setLogs([
+            { ts: new Date().toLocaleTimeString(), ev: 'OTP_VERIFIED', desc: 'Secure two-factor verification successful via email channel', status: 'ok', payload: { channel: 'email', verified: true } },
+            { ts: new Date().toLocaleTimeString(), ev: 'LOGGED_IN', desc: 'Secure voter session initialized', status: 'ok', payload: { auth_level: 'voter', check_integrity: 'PASS' } }
+          ]);
           await fetchVoterData(profile.roll_number);
         }
 
@@ -393,6 +338,18 @@ export default function VoterDashboard() {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  // Auto-logout trigger (for inactivity/session verification failures)
+  const handleAutoLogout = useCallback(async () => {
+    try {
+      await supabase.rpc('handle_logout');
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Auto logout error:', err);
+      await supabase.auth.signOut();
+    }
+    navigate('/voter-auth');
+  }, [navigate]);
+
   // Logout trigger
   const handleLogout = async () => {
     if (window.confirm('Are you sure you want to end your secure voter session? All current context will be wiped.')) {
@@ -407,6 +364,32 @@ export default function VoterDashboard() {
       navigate('/portal');
     }
   };
+
+  // Check verified session status in database
+  const validateSessionVerification = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        handleAutoLogout();
+        return;
+      }
+      const jwtPayload = JSON.parse(atob(session.access_token.split('.')[1]));
+      const sessionId = jwtPayload.session_id;
+
+      const { data, error } = await supabase
+        .from('verified_sessions')
+        .select('verified')
+        .eq('session_id', sessionId)
+        .maybeSingle();
+
+      if (error || !data || !data.verified) {
+        console.warn('Voter session is no longer verified in database. Terminating...');
+        handleAutoLogout();
+      }
+    } catch (err) {
+      console.error('Failed to validate voter session verification:', err);
+    }
+  }, [handleAutoLogout]);
 
   // Step 11 & Recovery: Closing ballot mid-way saves the state
   const handleCloseVotingModal = () => {
@@ -427,12 +410,7 @@ export default function VoterDashboard() {
   };
 
   // 8. Simulated Notifications State
-  const [notifications, setNotifications] = useState([
-    { id: 1, type: 'Eligibility Updated', message: 'You have been cleared by the Registrar to vote in CR Election 2026.', time: '5 mins ago', read: false },
-    { id: 2, type: 'Election Started', message: 'CR Election 2026 is officially live. Please cast your ballot.', time: '15 mins ago', read: false },
-    { id: 3, type: 'Election Schedule Changed', message: 'Senate Representative Poll postponed by 24 hours. Check revised dates.', time: '2 hours ago', read: true },
-    { id: 4, type: 'Results Published', message: 'Alumni Association Board Selection results are now public.', time: '1 day ago', read: true }
-  ]);
+  const [notifications, setNotifications] = useState([]);
 
   // 9. Help center contact state
   const [ticketSubject, setTicketSubject] = useState('');
@@ -466,6 +444,27 @@ export default function VoterDashboard() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const targetElection = activeWizardElection || selectedElection;
+    if (targetElection && targetElection.end) {
+      const updateTimer = () => {
+        const diffMs = new Date(targetElection.end).getTime() - Date.now();
+        if (diffMs <= 0) {
+          setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        } else {
+          const totalSecs = Math.floor(diffMs / 1000);
+          const h = Math.floor(totalSecs / 3600);
+          const m = Math.floor((totalSecs % 3600) / 60);
+          const s = totalSecs % 60;
+          setTimeLeft({ hours: h, minutes: m, seconds: s });
+        }
+      };
+      updateTimer();
+      const interval = setInterval(updateTimer, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [activeWizardElection, selectedElection]);
+
   // Session timeout warning timer (visual UX only)
   useEffect(() => {
     const warningDelay = setTimeout(() => {
@@ -494,6 +493,58 @@ export default function VoterDashboard() {
     return () => clearInterval(cdTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionTimeoutWarning, sessionTimeoutSeconds]);
+
+  // Set up inactivity monitors & 30s polling verification
+  useEffect(() => {
+    lastActiveTimeRef.current = Date.now();
+    const recordActivity = () => {
+      lastActiveTimeRef.current = Date.now();
+    };
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(ev => window.addEventListener(ev, recordActivity));
+
+    // Check inactivity every 5 seconds (15 minutes threshold = 900 seconds)
+    const inactivityInterval = setInterval(() => {
+      const idleTimeSeconds = (Date.now() - (lastActiveTimeRef.current || Date.now())) / 1000;
+      if (idleTimeSeconds >= 900) {
+        console.warn('Voter idle limit reached (15 minutes). Terminating session...');
+        handleAutoLogout();
+      }
+    }, 5000);
+
+    // Poll session verification status in DB every 30 seconds
+    const pollingInterval = setInterval(() => {
+      validateSessionVerification();
+    }, 30000);
+
+    // Immediate checks on tab focus and connection restore
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        validateSessionVerification();
+      }
+    };
+
+    const handleOnline = () => {
+      validateSessionVerification();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      events.forEach(ev => window.removeEventListener(ev, recordActivity));
+      clearInterval(inactivityInterval);
+      clearInterval(pollingInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [handleAutoLogout, validateSessionVerification]);
+
+  // Check verified session validity whenever voter transitions between dashboard tabs
+  useEffect(() => {
+    validateSessionVerification();
+  }, [activeTab, validateSessionVerification]);
 
   // ESC key handler to close modals
   useEffect(() => {
@@ -726,7 +777,8 @@ cryptographically sealed on the ledger.
   };
 
   const getParticipationStatus = (elec) => {
-    if (elec.status === 'Completed') return { text: 'Completed', class: 'completed' };
+    if (elec.status === 'COMPLETED' || elec.status === 'STOPPED') return { text: 'Completed', class: 'completed' };
+    if (elec.status === 'DEADLOCK') return { text: 'Deadlock', class: 'deadlock' };
     if (elec.voted) return { text: 'Vote Submitted', class: 'submitted' };
     if (sessionRecovery && sessionRecovery.electionId === elec.id) return { text: 'In Progress', class: 'in-progress' };
     return { text: 'Not Started', class: 'not-started' };
@@ -753,7 +805,7 @@ cryptographically sealed on the ledger.
 
   // Launch the Guided Voting Experience (Step 1)
   const launchVotingWizard = (election) => {
-    if (election.status === 'Completed') {
+    if (election.status === 'COMPLETED' || election.status === 'STOPPED' || election.status === 'DEADLOCK') {
       triggerToast(`Voting Closed. This election is no longer accepting votes. Election Ended: ${election.end}`);
       return;
     }
@@ -1032,10 +1084,10 @@ cryptographically sealed on the ledger.
     candidates: [],
     verificationToken: null
   };
-  const eligibleCount = elections.filter(e => e.status === 'Active' || e.status === 'Scheduled').length;
-  const activeCount = elections.filter(e => e.status === 'Active').length;
+  const eligibleCount = elections.filter(e => e.status === 'ACTIVE' || e.status === 'PAUSED').length;
+  const activeCount = elections.filter(e => e.status === 'ACTIVE').length;
   const votedCount = elections.filter(e => e.voted).length;
-  const pendingCount = elections.filter(e => !e.voted && e.status === 'Active').length;
+  const pendingCount = elections.filter(e => !e.voted && e.status === 'ACTIVE').length;
   const latestActivity = logs[0] ? logs[0].desc : 'No recent activity';
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
 
@@ -1216,7 +1268,7 @@ cryptographically sealed on the ledger.
                     <div className="onboarding-step-card">
                       <span className="step-num">3</span>
                       <h4>Receive Token</h4>
-                      <p>Retrieve single-use token from email/SMS.</p>
+                      <p>Retrieve single-use token from email.</p>
                     </div>
                     <div className="onboarding-step-card">
                       <span className="step-num">4</span>
@@ -1767,19 +1819,34 @@ cryptographically sealed on the ledger.
                     </div>
 
                     <h2>Election Token Generated</h2>
-                    <p className="success-subtext">Copy this token. You will need to enter it on the next screen to verify authorized access.</p>
+                    <p className="success-subtext">
+                      {wizardGeneratedToken 
+                        ? "Copy this token. You will need to enter it on the next screen to verify authorized access." 
+                        : "Your token has been securely delivered to your registered email. Check your inbox to retrieve it."}
+                    </p>
 
-                    <div className="generated-token-showcase-box">
-                      <div className="token-label">YOUR SECURITY TOKEN</div>
-                      <div className="token-code-row">
-                        <code className="token-code-text">{wizardGeneratedToken}</code>
-                        <button className="btn-copy-token-showcase" onClick={() => {
-                          navigator.clipboard.writeText(wizardGeneratedToken);
-                          triggerToast('Token copied to clipboard!');
-                        }}>Copy</button>
+                    {wizardGeneratedToken ? (
+                      <div className="generated-token-showcase-box">
+                        <div className="token-label">YOUR SECURITY TOKEN</div>
+                        <div className="token-code-row">
+                          <code className="token-code-text">{wizardGeneratedToken}</code>
+                          <button className="btn-copy-token-showcase" onClick={() => {
+                            navigator.clipboard.writeText(wizardGeneratedToken);
+                            triggerToast('Token copied to clipboard!');
+                          }}>Copy</button>
+                        </div>
+                        <p className="disclaimer-text"><IconAlertTriangle size={16} /> Keep this token private. It is required on the next screen to verify authorization.</p>
                       </div>
-                      <p className="disclaimer-text"><IconAlertTriangle size={16} /> Keep this token private. It is required on the next screen to verify authorization.</p>
-                    </div>
+                    ) : (
+                      <div className="generated-token-showcase-box" style={{ padding: '20px', textAlign: 'center', border: '1px dashed var(--border)' }}>
+                        <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--text)' }}>
+                          📧 A secure email containing your Voting Token has been dispatched.
+                        </p>
+                        <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: 'var(--text3)' }}>
+                          Please check your email, copy the token, and click below to proceed.
+                        </p>
+                      </div>
+                    )}
 
                     <div className="wizard-slide-footer full-width">
                       <button className="btn-wizard-nav-proceed center-btn" onClick={() => setWizardStep('token_delivery')}>
@@ -1841,27 +1908,28 @@ cryptographically sealed on the ledger.
                       This token can only be used once. Anyone with access to this token can cast a ballot under your credentials. Keep it strictly private.
                     </div>
 
-                    {/* Development Mode Helper Banner */}
-                    <div style={{
-                      padding: '14px',
-                      background: 'rgba(74, 157, 143, 0.08)',
-                      border: '1px solid rgba(74, 157, 143, 0.2)',
-                      borderRadius: '8px',
-                      color: 'var(--text)',
-                      fontSize: '12.5px',
-                      lineHeight: '1.5',
-                      textAlign: 'left',
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      marginBottom: '20px'
-                    }}>
-                      <strong style={{ color: 'var(--teal)', display: 'block', marginBottom: '4px' }}>Development Mode</strong>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0 2px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: '700', fontFamily: 'monospace' }}>Your Token: {wizardGeneratedToken}</span>
-                        <button style={{ background: 'var(--teal)', border: 'none', borderRadius: '4px', color: '#07100e', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }} onClick={() => handleCopyText(wizardGeneratedToken, 'Token')}>Copy</button>
+                    {wizardGeneratedToken && import.meta.env.VITE_APP_ENV !== 'production' && !productionLock && (
+                      <div style={{
+                        padding: '14px',
+                        background: 'rgba(74, 157, 143, 0.08)',
+                        border: '1px solid rgba(74, 157, 143, 0.2)',
+                        borderRadius: '8px',
+                        color: 'var(--text)',
+                        fontSize: '12.5px',
+                        lineHeight: '1.5',
+                        textAlign: 'left',
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        marginBottom: '20px'
+                      }}>
+                        <strong style={{ color: 'var(--teal)', display: 'block', marginBottom: '4px' }}>Development Mode</strong>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0 2px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '700', fontFamily: 'monospace' }}>Your Token: {wizardGeneratedToken}</span>
+                          <button style={{ background: 'var(--teal)', border: 'none', borderRadius: '4px', color: '#07100e', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }} onClick={() => handleCopyText(wizardGeneratedToken, 'Token')}>Copy</button>
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'var(--text3)' }}>(Email simulation active)</span>
                       </div>
-                      <span style={{ fontSize: '11px', color: 'var(--text3)' }}>(Email simulation active)</span>
-                    </div>
+                    )}
 
                     <div className="wizard-slide-footer full-width">
                       <button className="btn-wizard-nav-back" onClick={() => setWizardStep('token_gen_complete')}>Back</button>
@@ -2293,14 +2361,14 @@ cryptographically sealed on the ledger.
                         <div className="receipt-code-display-block" style={{ padding: '16px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', marginTop: '16px' }}>
                           <span className="label" style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>VERIFICATION TOKEN</span>
                           <div className="receipt-token-box-redesign" style={{ background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px', borderRadius: '6px', fontSize: '16px', fontWeight: '700', letterSpacing: '1px', color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
-                            {wizardGeneratedToken}
+                            {wizardGeneratedToken || wizardTokenInput}
                           </div>
                           
                           <div className="receipt-code-actions-row" style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                            <button className="btn-receipt-action-copy-redesign" style={{ flex: 1, padding: '10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', cursor: 'pointer', fontSize: '12.5px', fontWeight: '600' }} onClick={() => handleCopyText(wizardGeneratedToken, 'Verification Token')}>
+                            <button className="btn-receipt-action-copy-redesign" style={{ flex: 1, padding: '10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', cursor: 'pointer', fontSize: '12.5px', fontWeight: '600' }} onClick={() => handleCopyText(wizardGeneratedToken || wizardTokenInput, 'Verification Token')}>
                               Copy Token
                             </button>
-                            <button className="btn-receipt-action-download-redesign" style={{ flex: 1, padding: '10px', background: 'var(--teal)', border: 'none', color: '#07100e', borderRadius: '6px', cursor: 'pointer', fontSize: '12.5px', fontWeight: '600' }} onClick={() => handleDownloadReceipt(activeWizardElection, wizardGeneratedToken)}>
+                            <button className="btn-receipt-action-download-redesign" style={{ flex: 1, padding: '10px', background: 'var(--teal)', border: 'none', color: '#07100e', borderRadius: '6px', cursor: 'pointer', fontSize: '12.5px', fontWeight: '600' }} onClick={() => handleDownloadReceipt(activeWizardElection, wizardGeneratedToken || wizardTokenInput)}>
                               Download Receipt
                             </button>
                           </div>
@@ -2389,7 +2457,7 @@ cryptographically sealed on the ledger.
                               </div>
                               <div>
                                 <strong>Where do I get my token?</strong>
-                                <p style={{ margin: '2px 0 0 0', color: 'var(--text3)' }}>Generate it in Step 3. It will be dispatched via Email and SMS channels.</p>
+                                <p style={{ margin: '2px 0 0 0', color: 'var(--text3)' }}>Generate it in Step 3. It will be dispatched via your registered email address.</p>
                               </div>
                               <div>
                                 <strong>Can I change my vote?</strong>
@@ -2433,12 +2501,12 @@ cryptographically sealed on the ledger.
                                   <span>Report a dispatch failure or invalid token code.</span>
                                   <button
                                     onClick={() => {
-                                      setContactFormStatus('System check triggered. Token resent to email & phone channels.');
+                                      setContactFormStatus('System check triggered. Token resent to email.');
                                       setTimeout(() => setContactFormStatus(''), 4000);
                                     }}
                                     style={{ background: 'var(--gold)', border: 'none', color: 'black', borderRadius: '4px', padding: '8px', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                                   >
-                                    Re-dispatch Token via Backup Channels
+                                    Re-send Token via Email
                                   </button>
                                 </>
                               )}
@@ -2551,7 +2619,7 @@ cryptographically sealed on the ledger.
                                     <button className="btn-card-details select-action-btn" onClick={() => setSelectedElection(elec)} style={{ flex: 1 }}>
                                       View Details
                                     </button>
-                                    {!elec.voted && elec.status === 'Active' && (
+                                    {!elec.voted && elec.status === 'ACTIVE' && (
                                       <button className="btn-card-details participate-action-btn" onClick={() => launchVotingWizard(elec)} style={{ flex: 1, background: 'var(--teal)', color: '#07100e', border: 'none', fontWeight: '600' }}>
                                         Participate
                                       </button>
@@ -2613,7 +2681,7 @@ cryptographically sealed on the ledger.
                                     <button className="btn-card-details select-action-btn" onClick={() => setSelectedElection(elec)} style={{ flex: 1 }}>
                                       View Details
                                     </button>
-                                    {!elec.voted && elec.status === 'Active' && (
+                                    {!elec.voted && elec.status === 'ACTIVE' && (
                                       <button className="btn-card-details participate-action-btn" onClick={() => launchVotingWizard(elec)} style={{ flex: 1, background: 'var(--teal)', color: '#07100e', border: 'none', fontWeight: '600' }}>
                                         Participate
                                       </button>
@@ -2772,7 +2840,7 @@ cryptographically sealed on the ledger.
 
                     <div className="modal-footer-btns">
                       <button className="btn-modal-back" onClick={() => setSelectedElection(null)}>Close</button>
-                      {!selectedElection.voted && selectedElection.status === 'Active' && (
+                      {!selectedElection.voted && selectedElection.status === 'ACTIVE' && (
                         <button className="btn-modal-proceed select-item" onClick={() => {
                           const elec = selectedElection;
                           setSelectedElection(null);
@@ -2808,9 +2876,6 @@ cryptographically sealed on the ledger.
             ) : (
               <div className="results-stack-container">
                 {elections.map(el => {
-                  const sortedCand = [...el.candidates].sort((a, b) => (b.votes || 0) - (a.votes || 0));
-                  const totalVotes = el.candidates.reduce((sum, c) => sum + (c.votes || 0), 0);
-
                   return (
                     <div key={el.id} className="results-panel-card animate-fade-in" style={{ marginBottom: '24px' }}>
                       <div className="results-header-info">
@@ -2819,92 +2884,70 @@ cryptographically sealed on the ledger.
                           <span className="results-id">ID: {el.id}</span>
                         </div>
                         <div className="right-info">
-                          <span className={`results-status-badge ${el.status.toLowerCase().replace(/ \/ /g, '_').replace(/ /g, '_')}`}>
-                            {el.status === 'Emergency_Locked' ? 'Emergency Stopped' : el.status}
+                          <span className={`results-status-badge ${el.status.toLowerCase()}`}>
+                            {el.status === 'STOPPED' ? 'Stopped' : el.status}
                           </span>
                         </div>
                       </div>
 
                       <div className="results-content-box">
-                        {el.status === 'Draw / Deadlock' ? (
+                        {el.status === 'ACTIVE' || el.status === 'PAUSED' ? (
+                          <div className="results-locked-state">
+                            <div className="locked-shield-icon"><IconLock size={24} /></div>
+                            <h4>Results Locked Until Conclusion</h4>
+                            <p>
+                              Results will be available once voting concludes. In order to prevent turnout bias, candidate standings are hidden while polling is active.
+                            </p>
+                          </div>
+                        ) : el.status === 'DEADLOCK' ? (
                           <div className="live-standings-chart-block">
                             <div className="live-indicator-tag alert-tag" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '4px', fontWeight: 'bold' }}>
-                              <IconAlertTriangle size={20} /> TIE DEADLOCK DETECTED (AWAITING TIE-BREAK OVERRIDE)
-                            </div>
-                            <div className="standings-bars-wrap" style={{ marginTop: '16px' }}>
-                              {sortedCand.map((c) => {
-                                const pct = totalVotes > 0 ? Math.round((c.votes / totalVotes) * 100) : 0;
-                                return (
-                                  <div key={c.id} className="standing-bar-row" style={{ marginBottom: '12px' }}>
-                                    <div className="standing-cand-meta" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                      <span className="cand-name-lbl" style={{ fontWeight: 'bold' }}>{c.name} ({c.dept})</span>
-                                      <span className="cand-pct-val">{pct}% ({c.votes} votes)</span>
-                                    </div>
-                                    <div className="chart-bar-container" style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '4px', height: '10px', overflow: 'hidden' }}>
-                                      <div className="chart-bar-fill" style={{ width: `${pct}%`, background: '#ef4444', height: '100%' }} />
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                              <IconAlertTriangle size={20} /> Tie deadlock detected. Administrative resolution in progress.
                             </div>
                           </div>
-                        ) : el.jointWinner ? (
-                          <div className="live-standings-chart-block">
-                            <div className="live-indicator-tag final" style={{ background: 'rgba(212, 175, 55, 0.2)', color: '#d4af37', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '4px', fontWeight: 'bold' }}>
-                              <IconTrophy size={20} /> FINAL AUDITED OUTCOMES (JOINT WINNERS DECLARED)
+                        ) : el.status === 'COMPLETED' || el.status === 'STOPPED' ? (
+                          // Premium Winner Banner Card
+                          <div className="winner-banner-card-premium" style={{ background: 'rgba(74, 157, 143, 0.05)', border: '1px solid rgba(74, 157, 143, 0.2)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(74, 157, 143, 0.1)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <IconTrophy size={26} />
+                              </div>
+                              <div>
+                                <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--teal)', fontWeight: 'bold', letterSpacing: '0.05em' }}>
+                                  {el.jointWinner ? 'Joint Winners Declared' : 'Official Election Winner'}
+                                </span>
+                                <h3 style={{ margin: '2px 0 0', fontSize: '18px', fontWeight: '800', color: 'var(--text)' }}>
+                                  {el.winners && el.winners.length > 0
+                                    ? el.winners.map(w => w.name).join(' and ')
+                                    : el.results && el.results.filter(r => r.is_winner).map(r => r.candidate_name).join(' and ') || 'No winner declared'}
+                                </h3>
+                              </div>
                             </div>
-                            <div className="standings-bars-wrap" style={{ marginTop: '16px' }}>
-                              {sortedCand.map((c) => {
-                                const isWinner = el.winners && el.winners.some(w => w.id === c.id);
-                                const pct = totalVotes > 0 ? Math.round((c.votes / totalVotes) * 100) : 0;
-                                return (
-                                  <div key={c.id} className="standing-bar-row" style={{ marginBottom: '12px' }}>
-                                    <div className="standing-cand-meta" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                      <span className="cand-name-lbl" style={{ fontWeight: 'bold' }}>{c.name} ({c.dept}) {isWinner && '🏆'}</span>
-                                      <span className="cand-pct-val">{pct}% ({c.votes} votes)</span>
-                                    </div>
-                                    <div className="chart-bar-container" style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '4px', height: '10px', overflow: 'hidden' }}>
-                                      <div className="chart-bar-fill" style={{ width: `${pct}%`, background: isWinner ? '#d4af37' : '#5f758a', height: '100%' }} />
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : el.status === 'Completed' ? (
-                          <div className="live-standings-chart-block">
-                            <div className="live-indicator-tag final" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '4px', fontWeight: 'bold' }}>
-                              <IconTrophy size={20} /> FINAL AUDITED OUTCOMES (100% SECURE BALLOTS COUNTED)
-                            </div>
-                            <div className="standings-bars-wrap" style={{ marginTop: '16px' }}>
-                              {sortedCand.map((c, i) => {
-                                const isWinner = i === 0 && c.votes > 0;
-                                const pct = totalVotes > 0 ? Math.round((c.votes / totalVotes) * 100) : 0;
-                                return (
-                                  <div key={c.id} className="standing-bar-row" style={{ marginBottom: '12px' }}>
-                                    <div className="standing-cand-meta" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                      <span className="cand-name-lbl" style={{ fontWeight: 'bold' }}>{c.name} ({c.dept}) {isWinner && '🏆'}</span>
-                                      <span className="cand-pct-val">{pct}% ({c.votes} votes)</span>
-                                    </div>
-                                    <div className="chart-bar-container" style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '4px', height: '10px', overflow: 'hidden' }}>
-                                      <div className="chart-bar-fill" style={{ width: `${pct}%`, background: isWinner ? '#4a9d8f' : '#5f758a', height: '100%' }} />
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px', fontSize: '12.5px' }}>
+                              <div>
+                                <span style={{ color: 'var(--text3)', display: 'block', fontSize: '11px', textTransform: 'uppercase' }}>Department</span>
+                                <span style={{ fontWeight: '600' }}>
+                                  {el.winners && el.winners.length > 0
+                                    ? el.winners.map(w => w.dept).join(' / ')
+                                    : 'Department Representative'}
+                                </span>
+                              </div>
+                              <div>
+                                <span style={{ color: 'var(--text3)', display: 'block', fontSize: '11px', textTransform: 'uppercase' }}>Winning Share</span>
+                                <span style={{ fontWeight: '600', fontFamily: 'var(--font-mono)' }}>
+                                  {el.winners && el.winners.length > 0
+                                    ? `${((el.winners[0].votes / el.votesCast) * 100).toFixed(2)}%`
+                                    : el.results && el.results.filter(r => r.is_winner).map(r => `${r.vote_percentage}%`).join(' and ') || '0.00%'}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         ) : (
-                          // For active/paused/emergency elections, show locked shield to prevent turnout bias
                           <div className="results-locked-state">
                             <div className="locked-shield-icon"><IconLock size={24} /></div>
-                            <h4>Results Temporarily Locked</h4>
-                            <p>
-                              The administrator has configured results for this election to be **Private** during the live voting period to prevent turnout bias. Visual standings and candidate vote breakdowns will be released once the polling window closes.
-                            </p>
-                            <div className="turnout-indicator-badge">
-                              Current Turnout: <strong>{totalVotes} votes cast</strong>
-                            </div>
+                            <h4>Results Unavailable</h4>
+                            <p>No official outcomes are published for this election lifecycle.</p>
                           </div>
                         )}
                       </div>
@@ -3273,12 +3316,6 @@ cryptographically sealed on the ledger.
                     </div>
                     <div className="quick-detail-item">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="quick-icon">
-                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                      </svg>
-                      <span>{voter.phone}</span>
-                    </div>
-                    <div className="quick-detail-item">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="quick-icon">
                         <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
                         <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
                         <line x1="12" y1="22.08" x2="12" y2="12" />
@@ -3443,15 +3480,6 @@ cryptographically sealed on the ledger.
                           required
                         />
                       </div>
-                      <div className="form-field-item">
-                        <label>Phone Number</label>
-                        <input
-                          type="text"
-                          value={voter.phone}
-                          onChange={(e) => setVoter({ ...voter, phone: e.target.value })}
-                          required
-                        />
-                      </div>
                     </div>
                     <button type="submit" className="btn-save-profile-edit">Save Changes</button>
                   </form>
@@ -3477,10 +3505,6 @@ cryptographically sealed on the ledger.
                       <span className="info-field-lbl">Email</span>
                       <span className="info-field-val">{voter.email}</span>
                     </div>
-                    <div className="info-display-item">
-                      <span className="info-field-lbl">Phone Number</span>
-                      <span className="info-field-val">{voter.phone}</span>
-                    </div>
                   </div>
                 )}
               </div>
@@ -3501,14 +3525,7 @@ cryptographically sealed on the ledger.
                     </span>
                   </div>
 
-                  <div className="security-setting-item">
-                    <span className="setting-label-text">Phone Verified</span>
-                    <span className="setting-status-icon green-checkmark">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="verified-check-svg">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </span>
-                  </div>
+
 
                   <div className="security-setting-item">
                     <span className="setting-label-text">Two-Factor Authentication</span>

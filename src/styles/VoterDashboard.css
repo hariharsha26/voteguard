@@ -1981,9 +1981,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(12, 166, 120, 0.06);
-  border: 1px solid rgba(12, 166, 120, 0.15);
-  color: #0ca678;
+  background: var(--green);
+  color: #ffffff; /* Keep white text for strong badge visibility */
   padding: 8px 16px;
   border-radius: 8px;
   font-size: 13px;
@@ -2037,7 +2036,7 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #0ca678;
+  background: var(--green);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2064,7 +2063,7 @@
 }
 
 .voter-id-display span {
-  color: #228be6;
+  color: var(--teal);
   font-weight: 700;
   font-family: var(--font-mono);
 }
@@ -2133,13 +2132,14 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #0ca678;
+  background: var(--green);
   display: inline-block;
-  box-shadow: 0 0 0 3px rgba(12, 166, 120, 0.15);
+  box-shadow: 0 0 0 3px var(--green);
+  opacity: 0.85;
 }
 
 .summary-value.active {
-  color: #0ca678;
+  color: var(--green);
 }
 
 .summary-value.date {
@@ -2180,20 +2180,20 @@
   flex-shrink: 0;
 }
 
-.stat-icon-wrapper.purple-bg { background: rgba(92, 92, 255, 0.07); }
-.stat-icon-wrapper.green-bg { background: rgba(12, 166, 120, 0.07); }
-.stat-icon-wrapper.blue-bg { background: rgba(34, 139, 230, 0.07); }
-.stat-icon-wrapper.orange-bg { background: rgba(247, 103, 7, 0.07); }
+.stat-icon-wrapper.purple-bg { background: var(--violet2); }
+.stat-icon-wrapper.green-bg { background: rgba(21, 128, 61, 0.07); }
+.stat-icon-wrapper.blue-bg { background: var(--teal2); }
+.stat-icon-wrapper.orange-bg { background: var(--gold2); }
 
 .stat-svg {
   width: 22px;
   height: 22px;
 }
 
-.stat-svg.purple-icon { color: #5c5cff; }
-.stat-svg.green-icon { color: #0ca678; }
-.stat-svg.blue-icon { color: #228be6; }
-.stat-svg.orange-icon { color: #f76707; }
+.stat-svg.purple-icon { color: var(--violet); }
+.stat-svg.green-icon { color: var(--green); }
+.stat-svg.blue-icon { color: var(--teal); }
+.stat-svg.orange-icon { color: var(--gold); }
 
 .stat-content-wrap {
   display: flex;

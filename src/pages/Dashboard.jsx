@@ -1,5 +1,5 @@
 // Active Super Admin Dashboard with Profile & Productivity Workspace support
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import LogoMark from '../components/LogoMark';
 import ThemeToggle from '../components/ThemeToggle';
@@ -31,114 +31,358 @@ export default function Dashboard() {
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [previewElection, setPreviewElection] = useState(null);
   const [inspectedElection, setInspectedElection] = useState(null);
+  const [selectedResultElectionId, setSelectedResultElectionId] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([
     { id: 1, type: 'critical', text: 'ECE Rep Election Tie Imbalance Identified.', ts: '5 mins ago', read: false },
-    { id: 2, type: 'warning', text: 'SMS Delivery Relay Latency high (1.4s).', ts: '15 mins ago', read: false },
+    { id: 2, type: 'warning', text: 'Email Delivery Relay Latency high (1.4s).', ts: '15 mins ago', read: false },
     { id: 3, type: 'info', text: 'System backup synchronized successfully.', ts: '25 mins ago', read: true },
     { id: 4, type: 'info', text: 'Student Council President template updated.', ts: '1 hour ago', read: true },
   ]);
   const [activeAlerts] = useState([]);
-  const [resolvedAlerts] = useState([
-    { id: 'ALT101', title: 'Database connection pool usage spike', severity: 'warning', date: '2026-06-02 11:15', duration: '14 mins', resolution: 'Auto-scaled connection pools' },
-    { id: 'ALT102', title: 'Email API provider connection timeout', severity: 'critical', date: '2026-06-02 09:22', duration: '3 mins', resolution: 'Switched to primary backup mail route' },
-    { id: 'ALT103', title: 'Voter verification API rate-limit alert', severity: 'warning', date: '2026-06-01 16:40', duration: '30s', resolution: 'Throttled requests dynamically' }
-  ]);
-  const [elections, setElections] = useState([
-    { 
-      id: 'ELC001', 
-      name: 'Student Council President 2026', 
-      description: 'Annual election for the college student council president position.',
-      start: '2026-06-01', 
-      end: '2026-06-03 16:00', 
-      type: 'Public',
-      status: 'Running', 
-      voters: 2500, 
-      votesCast: 1420,
-      draw: false,
-      rules: { branch: 'ALL', rollRange: '1-200', laterals: true },
-      candidates: ['CAND001', 'CAND002']
-    },
-    { 
-      id: 'ELC002', 
-      name: 'CSE Senate Representative Poll', 
-      description: 'Departmental vote for the Computer Science & Engineering Senate representative.',
-      start: '2026-06-01', 
-      end: '2026-06-02 14:00', 
-      type: 'Private',
-      accessCode: 'VG-ACCESS-CR26',
-      status: 'Running', 
-      voters: 350, 
-      votesCast: 290,
-      draw: false,
-      rules: { branch: 'CSE', rollRange: '1-64', laterals: true },
-      candidates: ['CAND003', 'CAND004']
-    },
-    { 
-      id: 'ELC003', 
-      name: 'Alumni Association Board Selection', 
-      description: 'Global poll for alumni board selection.',
-      start: '2026-05-15', 
-      end: '2026-05-17 18:00', 
-      type: 'Public',
-      status: 'Completed', 
-      voters: 3101, 
-      votesCast: 2822,
-      draw: false,
-      rules: { branch: 'ALL', rollRange: 'ALL', laterals: false },
-      candidates: []
-    },
-    { 
-      id: 'ELC004', 
-      name: 'ECE Department Rep 2026', 
-      description: 'Electronics & Communication Engineering department representative vote.',
-      start: '2026-06-01', 
-      end: '2026-06-02 12:00', 
-      type: 'Public',
-      status: 'Completed', 
-      voters: 500, 
-      votesCast: 240,
-      draw: true, // Deadlocked poll for tie-break actions
-      rules: { branch: 'ECE', rollRange: '1-100', laterals: true },
-      candidates: ['CAND005', 'CAND006']
+
+  // Phase 6 States
+  const [securityData, setSecurityData] = useState(null);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [allSecurityEvents, setAllSecurityEvents] = useState([]); void allSecurityEvents;
+  const [systemErrors, setSystemErrors] = useState([]); void systemErrors;
+  const [selectedAuditElectionId, setSelectedAuditElectionId] = useState('');
+  const [integrityReport, setIntegrityReport] = useState(null);
+  const [integrityLoading, setIntegrityLoading] = useState(false);
+  const [auditEventFilter, setAuditEventFilter] = useState('ALL');
+  const [auditDateFrom, setAuditDateFrom] = useState('');
+  const [auditDateTo, setAuditDateTo] = useState('');
+  const [auditElectionFilter, setAuditElectionFilter] = useState('ALL');
+  const [auditLogsFromDb, setAuditLogsFromDb] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [inactivityTimeout, setInactivityTimeout] = useState(900); // Default 15 minutes (in seconds)
+  const [healthData, setHealthData] = useState(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [backupHistory, setBackupHistory] = useState([]);
+  const [integrityElectionId, setIntegrityElectionId] = useState('');
+  const [opsIntegrityReport, setOpsIntegrityReport] = useState(null);
+  const [opsIntegrityLoading, setOpsIntegrityLoading] = useState(false);
+  const lastActiveTimeRef = useRef(null);
+  // Ref used to break the forward-reference cycle: handleLogout is declared later
+  // but needs to be callable from validateSessionVerification defined earlier.
+  const logoutRef = useRef(null);
+
+  // Update activity timestamp
+  const recordActivity = () => {
+    lastActiveTimeRef.current = Date.now();
+  };
+
+  // Check verified session status in database
+  const validateSessionVerification = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        logoutRef.current?.();
+        return;
+      }
+      const jwtPayload = JSON.parse(atob(session.access_token.split('.')[1]));
+      const sessionId = jwtPayload.session_id;
+
+      const { data, error } = await supabase
+        .from('verified_sessions')
+        .select('verified')
+        .eq('session_id', sessionId)
+        .maybeSingle();
+
+      if (error || !data || !data.verified) {
+        console.warn('Session is no longer verified in database. Terminating...');
+        logoutRef.current?.();
+      }
+    } catch (err) {
+      console.error('Failed to validate session verification:', err);
     }
-  ]);
-  const [candidates, setCandidates] = useState([
-    { id: 'CAND001', name: 'Aarav Mehta', dept: 'CSE', rollNo: '21CS001', manifesto: 'Empowering students through open source and tech workspace transparency.', electionId: 'ELC001', votes: 820 },
-    { id: 'CAND002', name: 'Priya Sharma', dept: 'CSE', rollNo: '21CS042', manifesto: 'Fostering inclusivity and cross-department innovation.', electionId: 'ELC001', votes: 600 },
-    { id: 'CAND003', name: 'Vikram Aditya', dept: 'IT', rollNo: '21IT054', manifesto: 'Streamlining campus infrastructure and network capabilities.', electionId: 'ELC002', votes: 200 },
-    { id: 'CAND004', name: 'Ananya Iyer', dept: 'CSE', rollNo: '21CS102', manifesto: 'Improving student wellness and direct representation platforms.', electionId: 'ELC002', votes: 90 },
-    { id: 'CAND005', name: 'Rohan Verma', dept: 'ECE', rollNo: '22EC015', manifesto: 'Strengthening robotics and automation facilities.', electionId: 'ELC004', votes: 120 },
-    { id: 'CAND006', name: 'Aditya Nair', dept: 'ME', rollNo: '23ME089', manifesto: 'Developing green energy projects on campus.', electionId: 'ELC004', votes: 120 }
-  ]);
-  const [voters, setVoters] = useState([
-    { roll: '21CS001', name: 'Aarav Mehta', dept: 'CSE', userCreatedId: 'aarav_mehta', systemId: 'SYS-VOT-9982', status: 'Voted', eligible: true },
-    { roll: '21CS042', name: 'Priya Sharma', dept: 'CSE', userCreatedId: 'priya_s', systemId: 'SYS-VOT-1049', status: 'Token Dispatched - Not Voted', eligible: true },
-    { roll: '22EC015', name: 'Rohan Verma', dept: 'ECE', userCreatedId: 'rohan_v', systemId: 'SYS-VOT-4932', status: 'Registered', eligible: true },
-    { roll: '23ME089', name: 'Aditya Nair', dept: 'ME', userCreatedId: 'aditya_n', systemId: 'SYS-VOT-8821', status: 'Registered', eligible: true },
-    { roll: '21CS102', name: 'Ananya Iyer', dept: 'CSE', userCreatedId: 'ananya_i', systemId: 'SYS-VOT-3042', status: 'Voted', eligible: true },
-    { roll: '22EC144', name: 'Kabir Kapoor', dept: 'ECE', userCreatedId: 'kabir_k', systemId: 'SYS-VOT-1040', status: 'Registered', eligible: true },
-    { roll: '23EE005', name: 'Sneha Patel', dept: 'EE', userCreatedId: 'sneha_p', systemId: 'SYS-VOT-2041', status: 'Registered', eligible: false },
-    { roll: '21IT054', name: 'Vikram Singh', dept: 'IT', userCreatedId: 'vikram_s', systemId: 'SYS-VOT-4903', status: 'Voted', eligible: true },
-  ]);
+  }, []);
+
+  const fetchOperationsStatus = useCallback(async () => {
+    setHealthLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_system_status');
+      if (error) throw error;
+      setHealthData(data);
+      
+      const { data: backups, error: backupErr } = await supabase
+        .from('backup_registry')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (backupErr) throw backupErr;
+      setBackupHistory(backups || []);
+    } catch (err) {
+      console.error('Failed to load operations data:', err);
+    } finally {
+      setHealthLoading(false);
+    }
+  }, []);
+
+  const runIntegrityScan = async () => {
+    if (!integrityElectionId) return;
+    setOpsIntegrityLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_election_audit_report', { p_election_id: integrityElectionId });
+      if (error) throw error;
+      setOpsIntegrityReport(data);
+    } catch (err) {
+      console.error('Failed to run integrity scan:', err);
+      alert('Integrity Scan Failed: ' + err.message);
+    } finally {
+      setOpsIntegrityLoading(false);
+    }
+  };
+
+  const handleExportAuditPackage = async () => {
+    try {
+      const { data: auditLogs, error: auditError } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      const { data: securityEvents, error: securityError } = await supabase
+        .from('security_events')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (auditError || securityError) {
+        throw new Error(auditError?.message || securityError?.message);
+      }
+
+      const cleanAudit = sanitizeExportData(auditLogs || []);
+      const cleanSecurity = sanitizeExportData(securityEvents || []);
+
+      const watermark = [
+        ["VoteGuard Audit Package Export"],
+        ["Generated At: " + new Date().toISOString()],
+        ["Generated By: Super Admin"],
+        []
+      ];
+
+      const wb = XLSX.utils.book_new();
+
+      const wsAudit = XLSX.utils.json_to_sheet([]);
+      XLSX.utils.sheet_add_aoa(wsAudit, watermark, { origin: "A1" });
+      XLSX.utils.sheet_add_json(wsAudit, cleanAudit, { origin: "A5", skipHeader: false });
+      XLSX.utils.book_append_sheet(wb, wsAudit, "Audit Logs");
+
+      const wsSecurity = XLSX.utils.json_to_sheet([]);
+      XLSX.utils.sheet_add_aoa(wsSecurity, watermark, { origin: "A1" });
+      XLSX.utils.sheet_add_json(wsSecurity, cleanSecurity, { origin: "A5", skipHeader: false });
+      XLSX.utils.book_append_sheet(wb, wsSecurity, "Security Events");
+
+      XLSX.writeFile(wb, `VoteGuard_Audit_Package_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (err) {
+      console.error('Failed to export audit package:', err);
+      alert('Failed to export audit package: ' + err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'Operations') {
+      (async () => { await fetchOperationsStatus(); })();
+    }
+  }, [activeTab, fetchOperationsStatus]);
+
+  // Fetch security dashboard data
+  const fetchSecurityData = useCallback(async () => {
+    setSecurityLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_security_dashboard');
+      if (error) throw error;
+      setSecurityData(data);
+      if (data.system_errors) {
+        setSystemErrors(data.system_errors);
+      }
+
+      // Fetch all security_events for exporting or auditing (up to 500 records)
+      const { data: events, error: eventsErr } = await supabase
+        .from('security_events')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (eventsErr) throw eventsErr;
+      setAllSecurityEvents(events || []);
+    } catch (err) {
+      console.error('Failed to fetch security analytics data:', err);
+    } finally {
+      setSecurityLoading(false);
+    }
+  }, []);
+
+  // Fetch filtered audit logs from database
+  const fetchAuditLogsFromDb = useCallback(async () => {
+    setAuditLogsLoading(true);
+    try {
+      let query = supabase
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (auditEventFilter !== 'ALL') {
+        query = query.eq('event_type', auditEventFilter);
+      }
+      if (auditElectionFilter !== 'ALL') {
+        query = query.eq('election_id', auditElectionFilter);
+      }
+      if (auditDateFrom) {
+        query = query.gte('created_at', new Date(auditDateFrom).toISOString());
+      }
+      if (auditDateTo) {
+        const toDate = new Date(auditDateTo);
+        toDate.setHours(23, 59, 59, 999);
+        query = query.lte('created_at', toDate.toISOString());
+      }
+
+      const { data, error } = await query.limit(500);
+      if (error) throw error;
+      setAuditLogsFromDb(data || []);
+    } catch (err) {
+      console.error('Failed to fetch filtered audit logs:', err);
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  }, [auditEventFilter, auditElectionFilter, auditDateFrom, auditDateTo]);
+
+  // Run manually security logs retention cleanup
+  const handleManualRetentionCleanup = async () => {
+    if (!window.confirm('Are you sure you want to run the operational logs retention cleanup now? This will permanently delete security logs older than 180 days, and alerts/errors older than 365 days.')) {
+      return;
+    }
+    try {
+      const { error } = await supabase.rpc('cleanup_old_security_events');
+      if (error) throw error;
+      alert('Retention log cleanup completed successfully!');
+      await fetchSecurityData();
+    } catch (err) {
+      alert('Failed to execute retention cleanup: ' + err.message);
+    }
+  };
+
+  // Sanitization helper to redact sensitive data from exports
+  const sanitizeExportData = (rawArray) => {
+    return rawArray.map(item => {
+      const cleaned = { ...item };
+      // Delete sensitive fields if present
+      delete cleaned.otp;
+      delete cleaned.otp_code;
+      delete cleaned.token;
+      delete cleaned.token_hash;
+      delete cleaned.password;
+      delete cleaned.selection;
+      delete cleaned.candidate_id;
+      delete cleaned.candidate_name;
+      delete cleaned.client_fingerprint;
+      delete cleaned.ip_address;
+      
+      // Clean metadata_json
+      if (cleaned.metadata_json) {
+        const meta = { ...cleaned.metadata_json };
+        delete meta.otp;
+        delete meta.otp_code;
+        delete meta.token;
+        delete meta.token_hash;
+        delete meta.password;
+        delete meta.selection;
+        delete meta.candidate_id;
+        delete meta.candidate_name;
+        delete meta.client_fingerprint;
+        delete meta.ip_address;
+        delete meta.email;
+        delete meta.email_content;
+        delete meta.subject;
+        delete meta.body;
+        delete meta.phone_number;
+        delete meta.phone;
+        cleaned.metadata_json = meta;
+      }
+
+      // Redact details or source if email, token or OTP pattern is found
+      if (cleaned.details) {
+        cleaned.details = cleaned.details
+          .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[REDACTED_EMAIL]')
+          .replace(/\bVG-TEST-[A-F0-9]+\b/g, '[REDACTED_TOKEN]')
+          .replace(/\b\d{6,8}\b/g, '[REDACTED_CODE]')
+          .replace(/\b\d{10,12}\b/g, '[REDACTED_PHONE]')
+          .replace(/for Candidate [A-Za-z0-9 ]+/g, 'for [REDACTED_SELECTION]');
+      }
+
+      if (cleaned.actor_identifier && cleaned.actor_identifier.includes('@')) {
+        cleaned.actor_identifier = '[REDACTED_EMAIL]';
+      }
+      if (cleaned.actor && cleaned.actor.includes('@')) {
+        cleaned.actor = '[REDACTED_EMAIL]';
+      }
+
+      return cleaned;
+    });
+  };
+
+  // Excel (XLSX) Exporter with Watermark
+  const handleExportXlsx = (rawData, fileName, title, adminId) => {
+    const data = sanitizeExportData(rawData);
+    const watermark = [
+      ["VoteGuard Audit Export"],
+      ["Report: " + title],
+      ["Generated At: " + new Date().toISOString()],
+      ["Generated By: " + adminId],
+      []
+    ];
+
+    const ws = XLSX.utils.json_to_sheet([]);
+    XLSX.utils.sheet_add_aoa(ws, watermark, { origin: "A1" });
+    XLSX.utils.sheet_add_json(ws, data, { origin: "A6", skipHeader: false });
+    
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Audit Logs");
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
+  };
+
+  // CSV Exporter with Watermark
+  const handleExportCsv = (rawData, fileName, title, adminId) => {
+    const data = sanitizeExportData(rawData);
+    let csvContent = "";
+    csvContent += `"VoteGuard Audit Export"\n`;
+    csvContent += `"Report: ${title}"\n`;
+    csvContent += `"Generated At: ${new Date().toISOString()}"\n`;
+    csvContent += `"Generated By: ${adminId}"\n\n`;
+
+    if (data.length > 0) {
+      const headers = Object.keys(data[0]);
+      csvContent += headers.map(h => `"${h}"`).join(",") + "\n";
+      data.forEach(row => {
+        const line = headers.map(h => {
+          let val = row[h] === null || row[h] === undefined ? "" : row[h];
+          if (typeof val === 'object') {
+            val = JSON.stringify(val);
+          }
+          return `"${val.toString().replace(/"/g, '""')}"`;
+        }).join(",");
+        csvContent += line + "\n";
+      });
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${fileName}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  const [resolvedAlerts] = useState([]);
+  const [elections, setElections] = useState([]);
+  const [candidates, setCandidates] = useState([]);
+  const [voters, setVoters] = useState([]);
   const [selectedVoters, setSelectedVoters] = useState([]);
-  const [logs, setLogs] = useState([
-    { ts: '14:28:40', ev: 'CONFIG_UPDATE', usr: 'admin', desc: 'saved configuration setup', status: 'ok', level: 'INFO' },
-    { ts: '14:29:01', ev: 'ELECTION_START', usr: 'admin', desc: 'activated election ELC002', status: 'ok', level: 'INFO' },
-    { ts: '14:29:44', ev: 'OTP_VERIFY', usr: '21CS001', desc: 'MFA verified (email channel)', status: 'ok', level: 'INFO' },
-    { ts: '14:30:12', ev: 'RATE_LIMIT', usr: '23EE005', desc: 'Repeated verification failure (lockout active)', status: 'warn', level: 'WARNING' },
-    { ts: '14:31:30', ev: 'ELIGIBILITY', usr: '22EC015', desc: 'Eligibility check completed', status: 'ok', level: 'INFO' },
-    { ts: '14:31:55', ev: 'OTP_VERIFY', usr: '21IT054', desc: 'MFA verified (SMS channel)', status: 'ok', level: 'INFO' },
-    { ts: '14:31:58', ev: 'TOKEN_GEN', usr: '21IT054', desc: 'Token Generated = TRUE (Token value stripped for security)', status: 'ok', level: 'INFO' },
-    { ts: '14:32:01', ev: 'VOTE_CAST', usr: '21IT054', desc: 'Committing secure anonymous ballot', status: 'ok', level: 'INFO' },
-    { ts: '14:32:15', ev: 'BACKUP_SYNC', usr: 'system', desc: 'Database sync delay detected (14 mins)', status: 'warn', level: 'WARNING' },
-    { ts: '14:33:02', ev: 'ELECTION_TIE', usr: 'system', desc: 'Tie Imbalance Identified in ELC004 (ECE)', status: 'err', level: 'CRITICAL' },
-  ]);
+  const [logs, setLogs] = useState([]);
   const [securityStats, setSecurityStats] = useState({
     duplicateAttempts: 0,
-    invalidTokens: 3,
-    rateLimitedUsers: 2,
-    blockedRequests: 15
+    invalidTokens: 0,
+    rateLimitedUsers: 0,
+    blockedRequests: 0
   });
   const [adminProfile, setAdminProfile] = useState(null);
   const [adminBio, setAdminBio] = useState(() => {
@@ -147,29 +391,16 @@ export default function Dashboard() {
   });
   const [adminNotes, setAdminNotes] = useState(() => {
     const saved = localStorage.getItem('vg_admin_notes');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, title: 'CR Election Eligibility Review', text: 'Remember to review CSE election eligibility list and double-check for lateral entry category entries.', pinned: true, archived: false, date: '2026-06-02 10:30' },
-      { id: 2, title: 'Department Roll Overrides', text: 'Follow up with ECE department coordinator regarding missing lateral roll numbers.', pinned: false, archived: false, date: '2026-06-02 09:15' },
-      { id: 3, title: 'Pre-Closure Audit Compile', text: 'Generate final cryptographic audit report before Student Council election closes at 16:00.', pinned: false, archived: false, date: '2026-06-01 15:45' }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
   const [adminTasks, setAdminTasks] = useState(() => {
     const saved = localStorage.getItem('vg_admin_tasks');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, title: 'Review CSE Roll Overrides', priority: 'High', deadline: '2026-06-02', completed: false },
-      { id: 2, title: 'Generate ELC003 Archive', priority: 'Medium', deadline: '2026-06-03', completed: true },
-      { id: 3, title: 'Inspect ECE Deadlock Tie-break', priority: 'Critical', deadline: '2026-06-02', completed: false },
-      { id: 4, title: 'Perform Backup Sync check', priority: 'Low', deadline: '2026-06-04', completed: false }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
   const [adminEmail, setAdminEmail] = useState(() => {
     return localStorage.getItem('vg_admin_email') || 'hariharsha@voteguard.org';
   });
-  const [adminPhone, setAdminPhone] = useState(() => {
-    return localStorage.getItem('vg_admin_phone') || '+91 98765 43210';
-  });
   const [notifEmail, setNotifEmail] = useState(true);
-  const [notifSms, setNotifSms] = useState(false);
   const [notifPush, setNotifPush] = useState(true);
   const [adminPassCurrent, setAdminPassCurrent] = useState('');
   const [adminPassNew, setAdminPassNew] = useState('');
@@ -213,10 +444,10 @@ export default function Dashboard() {
   const [candManifesto, setCandManifesto] = useState('');
   const [candElectionId, setCandElectionId] = useState('ELC001');
   const [editCandId, setEditCandId] = useState(null);
-  const [displayedLogsCount, setDisplayedLogsCount] = useState(15);
-  const [auditTimeFilterFrom, setAuditTimeFilterFrom] = useState('');
-  const [auditTimeFilterTo, setAuditTimeFilterTo] = useState('');
-  const [auditSeverityFilter, setAuditSeverityFilter] = useState('ALL');
+  const [displayedLogsCount, setDisplayedLogsCount] = useState(15); void setDisplayedLogsCount;
+  const [auditTimeFilterFrom, setAuditTimeFilterFrom] = useState(''); void auditTimeFilterFrom; void setAuditTimeFilterFrom;
+  const [auditTimeFilterTo, setAuditTimeFilterTo] = useState(''); void auditTimeFilterTo; void setAuditTimeFilterTo;
+  const [auditSeverityFilter, setAuditSeverityFilter] = useState('ALL'); void setAuditSeverityFilter;
   const [exportingElectionId, setExportingElectionId] = useState(null);
   const [exportProgress, setExportProgress] = useState(0);
   const [signedPdfData, setSignedPdfData] = useState(null);
@@ -229,6 +460,9 @@ export default function Dashboard() {
 
   const fetchDatabaseData = async () => {
     try {
+      // Auto-finalize any expired active elections first
+      await supabase.rpc('check_and_finalize_expired_elections');
+
       // 1. Fetch elections
       const { data: dbElections, error: elError } = await supabase
         .from('elections')
@@ -239,6 +473,20 @@ export default function Dashboard() {
       // 1b. Fetch election statistics
       const { data: dbStats } = await supabase
         .from('election_statistics')
+        .select('*');
+
+      // 1c. Fetch election results & summaries & integrity reports
+      const { data: dbResults } = await supabase
+        .from('election_results')
+        .select('*')
+        .order('position_rank', { ascending: true });
+
+      const { data: dbSummaries } = await supabase
+        .from('election_summary')
+        .select('*');
+
+      const { data: dbIntegrity } = await supabase
+        .from('election_integrity_report')
         .select('*');
 
       // 2. Fetch candidates
@@ -299,12 +547,12 @@ export default function Dashboard() {
       }));
 
       // Find active election
-      const activeEl = (dbElections || []).find(e => e.status === 'Active');
+      const activeEl = (dbElections || []).find(e => e.status === 'ACTIVE');
 
       // Map voters
       const mappedVoters = (dbVoters || []).map(v => {
         // Find participation in the active election
-        const part = activeEl ? (dbParticipation || []).find(p => p.roll_number === v.roll_number && p.election_id === activeEl.id) : null;
+        const part = activeEl ? (dbParticipation || []).find(p => p.roll_number === v.roll_number && p.election_id === activeEl.id && p.election_round === activeEl.current_round) : null;
         let statusText = 'Registered';
         if (part) {
           if (part.has_voted) statusText = 'Voted';
@@ -352,6 +600,9 @@ export default function Dashboard() {
         };
 
         const stat = (dbStats || []).find(s => s.election_id === el.id);
+        const summary = (dbSummaries || []).find(s => s.election_id === el.id && s.election_round === el.current_round);
+        const integrity = (dbIntegrity || []).find(i => i.election_id === el.id && i.current_round === el.current_round);
+        const results = (dbResults || []).filter(r => r.election_id === el.id && r.election_round === el.current_round);
 
         return {
           id: el.id,
@@ -362,11 +613,16 @@ export default function Dashboard() {
           type: el.election_type,
           accessCode: el.access_code || '',
           status: el.status,
-          voters: stat ? Number(stat.eligible_voters) : (el.election_type === 'Private' ? elEligibleCount : (dbVoters || []).length),
-          votesCast: stat ? Number(stat.votes_cast) : elVotesCast,
-          draw: el.status === 'Draw / Deadlock',
+          currentRound: el.current_round,
+          isTie: el.is_tie,
           jointWinner: el.joint_winners,
           winners: el.winners,
+          voters: summary ? Number(summary.total_eligible_voters) : (stat ? Number(stat.eligible_voters) : (el.election_type === 'Private' ? elEligibleCount : (dbVoters || []).length)),
+          votesCast: summary ? Number(summary.total_votes) : (stat ? Number(stat.votes_cast) : elVotesCast),
+          turnoutPercentage: summary ? Number(summary.turnout_percentage) : (stat ? Number(stat.turnout_percentage) : 0),
+          results: results,
+          summary: summary,
+          integrity: integrity,
           rules: { branch: 'ALL', rollRange: 'ALL', laterals: true },
           candidates: elCands.map(c => c.id)
         };
@@ -385,7 +641,7 @@ export default function Dashboard() {
           level = 'WARNING';
           status = 'warn';
         }
-        if (log.event_type.toLowerCase().includes('emergency') || log.event_type.toLowerCase().includes('unauthorized') || log.event_type.toLowerCase().includes('security')) {
+        if (log.event_type.toLowerCase().includes('emergency') || log.event_type.toLowerCase().includes('unauthorized') || log.event_type.toLowerCase().includes('security') || log.event_type.toLowerCase().includes('stop')) {
           level = 'CRITICAL';
           status = 'err';
         }
@@ -410,10 +666,10 @@ export default function Dashboard() {
       const rateLimitLogsCount = (dbLogs || []).filter(l => l.event_type === 'OTP Failed' || l.details.includes('lockout')).length;
 
       setSecurityStats({
-        duplicateAttempts: (dbParticipation || []).filter(p => p.has_requested_token).length, // approximate
-        invalidTokens: invalidTokenLogsCount || 3,
-        rateLimitedUsers: rateLimitLogsCount || 2,
-        blockedRequests: (dbLogs || []).filter(l => l.event_type.toLowerCase().includes('block')).length || 15
+        duplicateAttempts: (dbParticipation || []).filter(p => p.has_requested_token).length,
+        invalidTokens: invalidTokenLogsCount,
+        rateLimitedUsers: rateLimitLogsCount,
+        blockedRequests: (dbLogs || []).filter(l => l.event_type.toLowerCase().includes('block') || l.event_type === 'RATE_LIMIT').length
       });
 
     } catch (err) {
@@ -482,6 +738,14 @@ export default function Dashboard() {
     });
   }, [activeTab]);
 
+  // Derive the default result election ID without calling setState inside an effect
+  const effectiveResultElectionId = useMemo(() => {
+    if (selectedResultElectionId) return selectedResultElectionId;
+    if (elections.length === 0) return null;
+    const nonArchived = elections.find(e => e.status !== 'ARCHIVED');
+    return nonArchived ? nonArchived.id : elections[0].id;
+  }, [selectedResultElectionId, elections]);
+
 
   // Clock ticking effect
   useEffect(() => {
@@ -490,6 +754,109 @@ export default function Dashboard() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Fetch timeout settings from system_settings dynamically
+  useEffect(() => {
+    const fetchTimeoutSetting = async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('key, value');
+        if (data) {
+          const timeoutDev = data.find(s => s.key === 'inactivity_timeout_dev');
+          const devModeSetting = data.find(s => s.key === 'dev_mode');
+          if (timeoutDev && devModeSetting && devModeSetting.value === 'true') {
+            setInactivityTimeout(parseInt(timeoutDev.value, 10));
+            console.log(`[Dev Mode] Inactivity timeout configured to ${timeoutDev.value} seconds.`);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch inactivity settings:', err);
+      }
+    };
+    fetchTimeoutSetting();
+  }, []);
+
+  // Set up inactivity monitors & 30s polling verification
+  useEffect(() => {
+    lastActiveTimeRef.current = Date.now();
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(ev => window.addEventListener(ev, recordActivity));
+
+    // Check inactivity every 5 seconds
+    const inactivityInterval = setInterval(() => {
+      const idleTimeSeconds = (Date.now() - (lastActiveTimeRef.current || Date.now())) / 1000;
+      if (idleTimeSeconds >= inactivityTimeout) {
+        console.warn(`Idle limit reached (${inactivityTimeout}s). Terminating session...`);
+        logoutRef.current?.();
+      }
+    }, 5000);
+
+    // Poll session verification status in DB every 30 seconds
+    const pollingInterval = setInterval(() => {
+      validateSessionVerification();
+    }, 30000);
+
+    // Immediate checks on tab focus and connection restore
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        validateSessionVerification();
+      }
+    };
+
+    const handleOnline = () => {
+      validateSessionVerification();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      events.forEach(ev => window.removeEventListener(ev, recordActivity));
+      clearInterval(inactivityInterval);
+      clearInterval(pollingInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [inactivityTimeout, validateSessionVerification]);
+
+  // Route transition / tab check: check session validity immediately when activeTab changes
+  useEffect(() => {
+    validateSessionVerification();
+    if (activeTab === 'Security') {
+      (async () => { await fetchSecurityData(); })();
+    }
+  }, [activeTab, validateSessionVerification, fetchSecurityData]);
+
+  // Fetch audit logs whenever activeTab is Reports or filters change
+  useEffect(() => {
+    if (activeTab === 'Reports') {
+      (async () => { await fetchAuditLogsFromDb(); })();
+    }
+  }, [activeTab, fetchAuditLogsFromDb]);
+
+  // Fetch election integrity report dynamically
+  useEffect(() => {
+    const fetchIntegrityReport = async () => {
+      if (!selectedAuditElectionId) {
+        setIntegrityReport(null);
+        return;
+      }
+      setIntegrityLoading(true);
+      try {
+        const { data, error } = await supabase.rpc('get_election_audit_report', {
+          p_election_id: selectedAuditElectionId
+        });
+        if (error) throw error;
+        setIntegrityReport(data);
+      } catch (err) {
+        console.error('Failed to fetch election integrity report:', err);
+      } finally {
+        setIntegrityLoading(false);
+      }
+    };
+    fetchIntegrityReport();
+  }, [selectedAuditElectionId]);
 
   // Global Search State (with debouncing support)
 
@@ -598,9 +965,7 @@ export default function Dashboard() {
     localStorage.setItem('vg_admin_email', adminEmail);
   }, [adminEmail]);
 
-  useEffect(() => {
-    localStorage.setItem('vg_admin_phone', adminPhone);
-  }, [adminPhone]);
+
 
   // Election templates state (CR election, Student senate, etc)
 
@@ -749,7 +1114,7 @@ export default function Dashboard() {
     const { data: activeElections, error: activeErr } = await supabase
       .from('elections')
       .select('id, election_name')
-      .eq('status', 'Active');
+      .eq('status', 'ACTIVE');
     if (activeErr) {
       alert('Error checking active elections: ' + activeErr.message);
       return;
@@ -762,7 +1127,7 @@ export default function Dashboard() {
     // 4. Update status to Active
     const { error: updateErr } = await supabase
       .from('elections')
-      .update({ status: 'Active' })
+      .update({ status: 'ACTIVE' })
       .eq('id', id);
 
     if (updateErr) {
@@ -778,10 +1143,10 @@ export default function Dashboard() {
     const el = elections.find(e => e.id === id);
     if (!el) return;
 
-    if (el.status === 'Running' || el.status === 'Active') {
+    if (el.status === 'ACTIVE') {
       const { error } = await supabase
         .from('elections')
-        .update({ status: 'Paused' })
+        .update({ status: 'PAUSED' })
         .eq('id', id);
       if (error) {
         alert('Failed to pause election: ' + error.message);
@@ -789,12 +1154,12 @@ export default function Dashboard() {
         await addAuditLog('ELECTION_PAUSE', 'admin', `Paused election ${el.name} (${id})`, 'INFO', 'ok');
         await fetchDatabaseData();
       }
-    } else if (el.status === 'Paused') {
-      // Check no other Active election exists
+    } else if (el.status === 'PAUSED') {
+      // Check no other ACTIVE election exists
       const { data: activeElections } = await supabase
         .from('elections')
         .select('id')
-        .eq('status', 'Active');
+        .eq('status', 'ACTIVE');
       if (activeElections && activeElections.length > 0) {
         alert('Error: Another election is currently active. Pause or complete it first.');
         return;
@@ -802,7 +1167,7 @@ export default function Dashboard() {
 
       const { error } = await supabase
         .from('elections')
-        .update({ status: 'Active' })
+        .update({ status: 'ACTIVE' })
         .eq('id', id);
       if (error) {
         alert('Failed to resume election: ' + error.message);
@@ -813,52 +1178,61 @@ export default function Dashboard() {
     }
   };
 
-  const handleEmergencyLock = async (id) => {
+  const handleEmergencyStop = async (id) => {
     const el = elections.find(e => e.id === id);
     if (!el) return;
 
-    const { error } = await supabase
-      .from('elections')
-      .update({ status: 'Emergency_Stopped' })
-      .eq('id', id);
+    const publish = window.confirm('EMERGENCY STOP PROTOCOL:\nWould you like to calculate and publish the current results with this emergency stop?');
+    
+    const { error } = await supabase.rpc('emergency_stop_election', {
+      p_election_id: id,
+      p_publish_results: publish
+    });
     
     if (error) {
-      alert('Failed to apply emergency lock: ' + error.message);
+      alert('Failed to apply emergency stop: ' + error.message);
     } else {
-      await addAuditLog('EMERGENCY_LOCK', 'admin', `EMERGENCY LOCK ACTIVATED ON ${el.name} - HALTING VOTES`, 'CRITICAL', 'err');
+      await addAuditLog('ELECTION_STOPPED', 'admin', `EMERGENCY STOP ACTIVATED ON ${el.name} - HALTING VOTING`, 'CRITICAL', 'err');
       setNotifications(prevNotif => [
-        { id: Date.now(), type: 'critical', text: `EMERGENCY LOCK applied on ${el.name}`, ts: 'Just now', read: false },
+        { id: Date.now(), type: 'critical', text: `EMERGENCY STOP applied on ${el.name}`, ts: 'Just now', read: false },
         ...prevNotif
       ]);
+      alert(`Emergency stop applied on election "${el.name}"!`);
       await fetchDatabaseData();
     }
   };
 
-  const stopElection = (id) => {
+  const handleCompleteElection = (id) => {
     const el = elections.find(x => x.id === id);
     triggerConfirm(
-      'Stop Election Permanently',
-      `Are you sure you want to stop the election "${el?.name || 'this election'}" permanently? This action is immutable and will lock the current vote count.`,
+      'Complete Election and Lock Ledger',
+      `Are you sure you want to complete the election "${el?.name || 'this election'}"? This will lock all votes and calculate final results.`,
       async () => {
         const { data: finalStatus, error } = await supabase
           .rpc('finalize_election', { p_election_id: id });
 
         if (error) {
-          alert('Failed to stop/finalize election: ' + error.message);
+          alert('Failed to complete/finalize election: ' + error.message);
         } else {
-          await addAuditLog('ELECTION_STOP', 'admin', `Finalized election ${el.name} permanently. Outcome status resolved to: ${finalStatus}`, 'INFO', 'ok');
+          if (finalStatus === 'DEADLOCK') {
+            alert('TIE DEADLOCK DETECTED! Administrative tie-break resolution is required.');
+          } else {
+            alert('Election completed successfully! Winners declared.');
+          }
+          await addAuditLog('ELECTION_COMPLETED', 'admin', `Completed election ${el.name}. Final status: ${finalStatus}`, 'INFO', 'ok');
           await fetchDatabaseData();
         }
       }
     );
   };
 
+
   const handleArchiveElection = async (id) => {
     const el = elections.find(e => e.id === id);
     if (!el) return;
     const { error } = await supabase
       .from('elections')
-      .update({ status: 'Archived' })
+      .update({ status: 'ARCHIVED' })
       .eq('id', id);
 
     if (error) {
@@ -942,7 +1316,7 @@ export default function Dashboard() {
           election_name: newElName,
           election_code: electionCode,
           election_type: newElType,
-          status: 'Draft', // Default status is Draft
+          status: 'DRAFT', // Default status is DRAFT
           access_code: newElType === 'Private' ? (newElAccessCode || 'VG-ACCESS-CODE') : null,
           start_time: startTime.toISOString(),
           end_time: endTime.toISOString(),
@@ -984,7 +1358,7 @@ export default function Dashboard() {
     setIsSubmitting(true);
 
     const selectedEl = elections.find(el => el.id === candElectionId);
-    if (selectedEl && selectedEl.status !== 'Draft') {
+    if (selectedEl && selectedEl.status !== 'DRAFT') {
       alert('Cannot add/modify candidates for an active or completed election.');
       setIsSubmitting(false);
       return;
@@ -1052,7 +1426,7 @@ export default function Dashboard() {
 
   const handleEditCandidateClick = (c) => {
     const el = elections.find(e => e.id === c.electionId);
-    if (el && el.status !== 'Draft') {
+    if (el && el.status !== 'DRAFT') {
       alert('Cannot edit candidates for an active or completed election.');
       return;
     }
@@ -1066,7 +1440,7 @@ export default function Dashboard() {
 
   const handleDeleteCandidate = (id, electionId) => {
     const el = elections.find(e => e.id === electionId);
-    if (el && el.status !== 'Draft') {
+    if (el && el.status !== 'DRAFT') {
       alert('Cannot withdraw/modify candidates for an active or completed election.');
       return;
     }
@@ -1136,7 +1510,7 @@ export default function Dashboard() {
     }
 
     const selectedEl = elections.find(e => e.id === eligibilityElectionId);
-    if (selectedEl && selectedEl.status !== 'Draft') {
+    if (selectedEl && selectedEl.status !== 'DRAFT') {
       alert('Cannot modify eligibility list for an active or completed election.');
       return;
     }
@@ -1529,6 +1903,11 @@ export default function Dashboard() {
       navigate('/portal');
     }
   };
+  // Wire logoutRef so callbacks defined before handleLogout can call it via the ref
+  // Must be inside useEffect to avoid "cannot update ref during render" violation
+  useEffect(() => {
+    logoutRef.current = handleLogout;
+  });
 
   // Bulk User Actions
   const handleBulkAction = (action) => {
@@ -1655,12 +2034,12 @@ export default function Dashboard() {
   const unpinnedNotes = filteredAdminNotes.filter(n => !n.pinned);
 
   const selectedElForCand = elections.find(e => e.id === candElectionId);
-  const isCandFormLocked = selectedElForCand && selectedElForCand.status !== 'Draft';
+  const isCandFormLocked = selectedElForCand && selectedElForCand.status !== 'DRAFT';
 
   const selectedElForElig = elections.find(e => e.id === eligibilityElectionId);
-  const isEligFormLocked = selectedElForElig && selectedElForElig.status !== 'Draft';
+  const isEligFormLocked = selectedElForElig && selectedElForElig.status !== 'DRAFT';
 
-  const activeElection = elections.find(e => e.status === 'Active' || e.status === 'Running' || e.status === 'Paused');
+  const activeElection = elections.find(e => e.status === 'ACTIVE' || e.status === 'PAUSED');
 
   if (checkingAuth) {
 
@@ -1699,7 +2078,9 @@ export default function Dashboard() {
               { id: 'Candidates', lbl: 'Candidate Setup', icon: <IconUsers size={18} /> },
               { id: 'Users', lbl: 'User Management', icon: <IconUsers size={18} /> },
               { id: 'Results', lbl: 'Results Analytics', icon: <IconTrophy size={18} /> },
-              { id: 'Reports', lbl: 'Reports & Audits', icon: <IconFolder size={18} /> },
+              { id: 'Security', lbl: 'Security Analytics', icon: <IconShield size={18} /> },
+              { id: 'Reports', lbl: 'Audit Portal', icon: <IconFolder size={18} /> },
+              { id: 'Operations', lbl: 'Operations Control', icon: <IconPackage size={18} /> },
               { id: 'System', lbl: 'System Health', icon: <IconPlug size={18} /> },
               { id: 'Alerts', lbl: 'Alerts Terminal', icon: <IconAlertCircle size={18} /> },
               { id: 'Profile', lbl: 'Profile & Notes', icon: <IconUser size={18} /> },
@@ -1723,10 +2104,10 @@ export default function Dashboard() {
         {/* BOTTOM ACTIVE ELECTIONS PANEL */}
         <div className="sidebar-active-panel">
           <div className="active-panel-title"><IconBolt size={20} /> Live Elections</div>
-          {elections.filter(e => e.status === 'Running').length === 0 ? (
+          {elections.filter(e => e.status === 'ACTIVE' || e.status === 'PAUSED').length === 0 ? (
             <div className="active-panel-empty">No Active Elections</div>
           ) : (
-            elections.filter(e => e.status === 'Running').map(el => (
+            elections.filter(e => e.status === 'ACTIVE' || e.status === 'PAUSED').map(el => (
               <div key={el.id} className="active-panel-card">
                 <span className="active-el-name">{el.name}</span>
                 <span className="active-el-time">Ends: {el.end.split(' ')[1] || '04:00 PM'}</span>
@@ -1762,7 +2143,17 @@ export default function Dashboard() {
           </button>
 
           <div className="dashboard-title-area">
-            <h1 className="dashboard-title">{activeTab === 'Dashboard' ? 'Administrator Cockpit' : activeTab}</h1>
+            <h1 className="dashboard-title">
+              {activeTab === 'Dashboard' 
+                ? 'Administrator Cockpit' 
+                : activeTab === 'Reports' 
+                  ? 'Audit Portal' 
+                  : activeTab === 'Security' 
+                    ? 'Security Analytics' 
+                    : activeTab === 'Operations'
+                      ? 'Operations Control'
+                      : activeTab}
+            </h1>
             <span className="dashboard-subtitle">VoteGuard Secure Election Governance Cockpit</span>
           </div>
 
@@ -1834,7 +2225,7 @@ export default function Dashboard() {
                 <div className="dash-stat-card">
                   <span className="dash-stat-label">Running Polls</span>
                   <span className="dash-stat-value">
-                    <CountUpNumber to={elections.filter(e => e.status === 'Running').length} />
+                    <CountUpNumber to={elections.filter(e => e.status === 'ACTIVE' || e.status === 'PAUSED').length} />
                   </span>
                   <span className="dash-stat-sub positive">Live turnout tracking active</span>
                 </div>
@@ -1843,7 +2234,7 @@ export default function Dashboard() {
                 <div className="dash-stat-card">
                   <span className="dash-stat-label">Completed / Archived</span>
                   <span className="dash-stat-value">
-                    <CountUpNumber to={elections.filter(e => e.status === 'Completed' || e.status === 'Archived').length} />
+                    <CountUpNumber to={elections.filter(e => e.status === 'COMPLETED' || e.status === 'ARCHIVED').length} />
                   </span>
                   <span className="dash-stat-sub neutral">Audit traces stored</span>
                 </div>
@@ -1938,8 +2329,8 @@ export default function Dashboard() {
                       <IconShield size={18} /> Active Election Health
                     </span>
                     {activeElection ? (
-                      <span className={`badge-role ${activeElection.status === 'Active' || activeElection.status === 'Running' || activeElection.status === 'Paused' ? 'green' : 'gold'}`}>
-                        {activeElection.status === 'Active' ? 'Running' : activeElection.status}
+                      <span className={`badge-role ${activeElection.status === 'ACTIVE' || activeElection.status === 'PAUSED' ? 'green' : 'gold'}`}>
+                        {activeElection.status === 'ACTIVE' ? 'Running' : activeElection.status}
                       </span>
                     ) : (
                       <span className="badge-role" style={{ color: 'var(--text3)' }}>Inactive</span>
@@ -2210,9 +2601,9 @@ export default function Dashboard() {
                       style={{ width: '100%', padding: '10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)' }}
                     >
                       <option value="">-- Choose Election to Ingest Eligibility --</option>
-                      {elections.filter(el => el.status === 'Draft' || el.status === 'Configured').map(el => (
-                        <option key={el.id} value={el.id}>{el.name} ({el.id})</option>
-                      ))}
+                      {elections.filter(el => el.status === 'DRAFT').map(el => (
+                         <option key={el.id} value={el.id}>{el.name} ({el.id})</option>
+                       ))}
                     </select>
                   </div>
 
@@ -2335,17 +2726,15 @@ export default function Dashboard() {
                       {/* Visual lifecycle timeline */}
                       <div className="visual-timeline-container">
                         {[
-                          { key: 'Configured', lbl: 'Created' },
-                          { key: 'Running', lbl: 'Activated' },
-                          { key: 'Paused', lbl: 'Paused' },
-                          { key: 'Emergency_Locked', lbl: 'Locked' },
-                          { key: 'Completed', lbl: 'Completed' },
-                          { key: 'Archived', lbl: 'Archived' }
+                           { key: 'DRAFT', lbl: 'Created' },
+                           { key: 'ACTIVE', lbl: 'Activated' },
+                           { key: 'PAUSED', lbl: 'Paused' },
+                           { key: 'STOPPED', lbl: 'Stopped' },
+                           { key: 'COMPLETED', lbl: 'Completed' },
+                           { key: 'DEADLOCK', lbl: 'Deadlock' },
+                           { key: 'ARCHIVED', lbl: 'Archived' }
                         ].map((node) => {
-                          const isActive = el.status === node.key || 
-                            (el.status === 'Draft' && node.key === 'Configured') ||
-                            (el.status === 'Active' && node.key === 'Running') ||
-                            (el.status === 'Emergency_Stopped' && node.key === 'Emergency_Locked');
+                          const isActive = el.status === node.key;
                           return (
                             <div key={node.key} className={`timeline-node ${isActive ? 'active' : ''}`}>
                               <div className="timeline-node-circle"></div>
@@ -2365,8 +2754,8 @@ export default function Dashboard() {
                         <span className="item-stat-lbl">Turnout</span>
                         <span className="item-stat-val">{el.votesCast} cast</span>
                       </div>
-                      <span className={`election-status-tag ${el.status === 'Active' || el.status === 'Running' ? 'running' : el.status.toLowerCase()}`}>
-                        {el.status === 'Active' ? 'Running' : el.status.replace('_', ' ')}
+                      <span className={`election-status-tag ${el.status === 'ACTIVE' ? 'running' : el.status.toLowerCase()}`}>
+                        {el.status === 'ACTIVE' ? 'Running' : el.status.replace('_', ' ')}
                       </span>
                     </div>
 
@@ -2375,43 +2764,43 @@ export default function Dashboard() {
                         <IconEye size={18} /> Preview
                       </button>
 
-                      {(el.status === 'Draft' || el.status === 'Configured') && (
+                      {el.status === 'DRAFT' && (
                         <button className="btn-action-sm positive" onClick={() => startElection(el.id)} style={{ background: 'rgba(74, 157, 143, 0.2)', color: '#4a9d8f' }}>
                           <IconPlayerPlay size={18} /> Start Election
                         </button>
                       )}
 
-                      {(el.status === 'Running' || el.status === 'Active') && (
+                      {el.status === 'ACTIVE' && (
                         <>
                           <button className="btn-action-sm" onClick={() => toggleElectionStatus(el.id)}>
                             <IconPlayerPause size={18} /> Pause
                           </button>
-                          <button className="btn-action-sm danger" onClick={() => handleEmergencyLock(el.id)}>
-                            <IconAlertCircle size={18} /> Emergency Lock
+                          <button className="btn-action-sm danger" onClick={() => handleEmergencyStop(el.id)}>
+                            <IconAlertCircle size={18} /> Emergency Stop
                           </button>
-                          <button className="btn-action-sm danger" onClick={() => stopElection(el.id)}>
-                            ✕ Stop Poll
+                          <button className="btn-action-sm positive" onClick={() => handleCompleteElection(el.id)} style={{ background: 'rgba(74, 157, 143, 0.2)', color: '#4a9d8f' }}>
+                            <IconCircleCheck size={18} /> Complete Election
                           </button>
                         </>
                       )}
 
-                      {el.status === 'Paused' && (
+                      {el.status === 'PAUSED' && (
                         <>
                           <button className="btn-action-sm" onClick={() => toggleElectionStatus(el.id)}>
                             <IconPlayerPlay size={18} /> Resume
                           </button>
-                          <button className="btn-action-sm danger" onClick={() => handleEmergencyLock(el.id)}>
-                            <IconAlertCircle size={18} /> Emergency Lock
+                          <button className="btn-action-sm danger" onClick={() => handleEmergencyStop(el.id)}>
+                            <IconAlertCircle size={18} /> Emergency Stop
                           </button>
-                          <button className="btn-action-sm danger" onClick={() => stopElection(el.id)}>
-                            ✕ Stop Poll
+                          <button className="btn-action-sm positive" onClick={() => handleCompleteElection(el.id)} style={{ background: 'rgba(74, 157, 143, 0.2)', color: '#4a9d8f' }}>
+                            <IconCircleCheck size={18} /> Complete Election
                           </button>
                         </>
                       )}
 
-                      {(el.status === 'Emergency_Locked' || el.status === 'Emergency_Stopped') && (
+                      {el.status === 'STOPPED' && (
                         <button className="btn-action-sm" onClick={async () => {
-                          const { error } = await supabase.from('elections').update({ status: 'Active' }).eq('id', el.id);
+                          const { error } = await supabase.from('elections').update({ status: 'ACTIVE', emergency_locked: false }).eq('id', el.id);
                           if (error) alert(error.message);
                           else {
                             await addAuditLog('EMERGENCY_UNLOCK', 'admin', `Unlocked election ${el.name}`, 'INFO', 'ok');
@@ -2422,7 +2811,7 @@ export default function Dashboard() {
                         </button>
                       )}
 
-                      {el.status === 'Completed' && (
+                      {el.status === 'COMPLETED' && (
                         <>
                           <button className="btn-action-sm gold" onClick={() => handleArchiveElection(el.id)}>
                             <IconPackage size={18} /> Archive
@@ -2436,7 +2825,18 @@ export default function Dashboard() {
                         </>
                       )}
 
-                      {el.status === 'Archived' && (
+                      {el.status === 'DEADLOCK' && (
+                        <>
+                          <button className="btn-action-sm gold" onClick={() => handleDeclareJointWinners(el.id)}>
+                            <IconHeartHandshake size={18} /> Declare Joint Winners
+                          </button>
+                          <button className="btn-action-sm danger" onClick={() => handleReopenElection(el.id)}>
+                            <IconRefresh size={18} /> Re-Open Election
+                          </button>
+                        </>
+                      )}
+
+                      {el.status === 'ARCHIVED' && (
                         <span style={{ fontSize: '11px', color: 'var(--text3)' }}>Archived (Read Only)</span>
                       )}
                     </div>
@@ -2556,7 +2956,7 @@ export default function Dashboard() {
                 <tbody>
                   {filteredCandidates.map(c => {
                     const el = elections.find(e => e.id === c.electionId);
-                    const isLocked = el && el.status !== 'Draft';
+                    const isLocked = el && el.status !== 'DRAFT';
                     return (
                       <tr key={c.id}>
                         <td data-label="Name"><strong>{highlightMatch(c.name, globalSearch)}</strong></td>
@@ -2726,229 +3126,958 @@ export default function Dashboard() {
 
         {/* RESULTS ANALYTICS TAB */}
         {activeTab === 'Results' && (
-          <div className="dashboard-body animate-fade-in">
-            <h2 className="tab-section-title">Election Results Analytics (Hover to Expand)</h2>
-            
-            <div className="results-hover-grid">
-              {elections.filter(e => e.status !== 'Archived').map(el => {
-                const elCandidates = candidates.filter(c => c.electionId === el.id);
-                const sortedCand = [...elCandidates].sort((a,b) => b.votes - a.votes);
-                const winner = sortedCand[0];
-                const totalVotes = el.votesCast;
+          <div className="dashboard-body animate-fade-in" style={{ padding: '24px' }}>
+            <div className="page-intro-header" style={{ marginBottom: '24px' }}>
+              <h2 className="tab-section-title" style={{ margin: 0, fontSize: '22px', fontWeight: '700', color: 'var(--text)' }}>
+                Election Results Cockpit
+              </h2>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text2)' }}>
+                Inspect cryptographic standings, verify tally reconciliations, and resolve deadlocks for active and finalized elections.
+              </p>
+            </div>
 
-                return (
-                  <div key={el.id} className="result-expand-card">
-                    <div className="result-card-header">
-                      <span className="res-el-id">{el.id}</span>
-                      <span className={`res-el-status ${el.status.toLowerCase()}`}>{el.status}</span>
-                    </div>
-                    <h3 className="res-el-title">{el.name}</h3>
-                    <p className="res-el-desc">{el.description}</p>
-                    
-                    <div className="res-summary-mini">
-                      <span>Total Votes: <strong>{totalVotes}</strong></span>
-                      <span>Voters: <strong>{el.voters}</strong></span>
-                    </div>
-
-                    {el.draw && (
-                      <div className="tie-warning-banner">
-                        <IconAlertTriangle size={18} /> Result Confirmed: Tie Imbalance Identified
-                      </div>
-                    )}
-
-                    {/* HOVER OVERLAY DETAIL PANEL */}
-                    <div className="result-hover-overlay-panel">
-                      <h4 className="hover-panel-title">Operational Data Stream</h4>
-                      
-                      {el.draw ? (
-                        <div className="hover-tie-actions">
-                          <p className="tie-helper-text">Two leading candidates tied with equal ballot points.</p>
-                          <button className="btn-action-sm gold" onClick={() => handleDeclareJointWinners(el.id)}>
-                            <IconHeartHandshake size={18} /> Declare Joint Winners
-                          </button>
-                          <button className="btn-action-sm danger" onClick={() => handleReopenElection(el.id)}>
-                            <IconRefresh size={18} /> Re-Open Target Election
-                          </button>
+            <div className="results-split-layout" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '24px', alignItems: 'start' }}>
+              
+              {/* LEFT SIDEBAR: ELECTIONS SELECTOR */}
+              <div className="results-sidebar-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ margin: '0 0 4px', fontSize: '12px', textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '0.05em', fontWeight: '700' }}>
+                  Elections Registry
+                </h3>
+                {elections.filter(e => e.status !== 'ARCHIVED').length === 0 ? (
+                  <div className="empty-state-small" style={{ padding: '16px', background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: '8px', textAlign: 'center', fontSize: '12px', color: 'var(--text3)' }}>
+                    No active or completed elections.
+                  </div>
+                ) : (
+                  elections.filter(e => e.status !== 'ARCHIVED').map(el => {
+                    const isSelected = effectiveResultElectionId === el.id;
+                    return (
+                      <div
+                        key={el.id}
+                        onClick={() => setSelectedResultElectionId(el.id)}
+                        className={`election-select-item-card ${isSelected ? 'active' : ''}`}
+                        style={{
+                          background: isSelected ? 'rgba(74, 157, 143, 0.1)' : 'var(--glass)',
+                          border: isSelected ? '1px solid var(--teal)' : '1px solid var(--border)',
+                          borderRadius: '10px',
+                          padding: '14px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--gold)', fontWeight: 'bold' }}>{el.id}</span>
+                          <span className={`election-status-tag ${el.status.toLowerCase()}`} style={{ fontSize: '9px', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: 'bold', background: el.status === 'ACTIVE' ? 'var(--teal-bg)' : el.status === 'PAUSED' ? 'var(--gold-bg)' : el.status === 'DEADLOCK' ? 'var(--red-bg)' : 'var(--glass)', color: el.status === 'ACTIVE' ? 'var(--teal)' : el.status === 'PAUSED' ? 'var(--gold)' : el.status === 'DEADLOCK' ? 'var(--red)' : 'var(--text2)' }}>
+                            {el.status === 'ACTIVE' ? 'Running' : el.status === 'STOPPED' ? 'Stopped' : el.status}
+                          </span>
                         </div>
-                      ) : (
-                        <div className="hover-winner-info">
-                          {el.jointWinner ? (
-                            <>
-                              <span className="lbl" style={{ color: '#d4af37', display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                                JOINT WINNERS
-                              </span>
-                              {el.winners && el.winners.map(w => (
-                                <div key={w.id} className="winner-row" style={{ borderLeft: '3px solid #d4af37', paddingLeft: '8px', marginBottom: '8px' }}>
-                                  <div className="winner-avatar" style={{ background: 'rgba(212, 175, 55, 0.2)', color: '#d4af37' }}>
-                                    {w.name.split(' ').map(x=>x[0]).join('')}
-                                  </div>
-                                  <div className="winner-meta">
-                                    <span className="name" style={{ fontWeight: 'bold' }}>{w.name} ({w.dept})</span>
-                                    <span className="votes-count" style={{ fontSize: '0.85em', opacity: 0.8 }}>{w.votes} votes</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </>
-                          ) : winner ? (
-                            <>
-                              <div className="winner-row">
-                                <div className="winner-avatar">{winner.name.split(' ').map(x=>x[0]).join('')}</div>
-                                <div className="winner-meta">
-                                  <span className="lbl">WINNER</span>
-                                  <span className="name">{winner.name} ({winner.dept})</span>
-                                </div>
-                              </div>
+                        <h4 style={{ margin: 0, fontSize: '13.5px', fontWeight: '600', color: isSelected ? 'var(--teal)' : 'var(--text)' }}>{el.name}</h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: 'var(--text3)' }}>
+                          <span>Round {el.currentRound}</span>
+                          <span>{el.votesCast} votes</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
 
-                              <div className="top-contenders-list">
-                                <span className="contenders-title">Top Candidates</span>
-                                {sortedCand.slice(0, 3).map((c, i) => (
-                                  <div key={c.id} className="contender-row">
-                                    <span className="cand-n">{i+1}. {c.name}</span>
-                                    <span className="cand-p">{totalVotes > 0 ? Math.round((c.votes/totalVotes)*100) : 0}% ({c.votes}v)</span>
-                                  </div>
-                                ))}
+              {/* RIGHT CONTENT: RESULTS AUDIT & ANALYTICS */}
+              <div className="results-main-display" style={{ minHeight: '500px' }}>
+                {(() => {
+                  const el = elections.find(e => e.id === effectiveResultElectionId);
+                  if (!el) {
+                    return (
+                      <div className="empty-details-card" style={{ background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: '12px', padding: '48px', textAlign: 'center', color: 'var(--text3)' }}>
+                        <IconChartBar size={48} style={{ margin: '0 auto 12px', display: 'block', opacity: 0.5 }} />
+                        <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text)' }}>Select an Election</h3>
+                        <p style={{ fontSize: '13px', margin: '4px 0 0' }}>Select an election from the sidebar list to view results, standings, and security audit reports.</p>
+                      </div>
+                    );
+                  }
+
+                  const standings = el.status === 'COMPLETED' || el.status === 'STOPPED' || el.status === 'DEADLOCK'
+                    ? el.results.map(r => ({
+                        id: r.candidate_id,
+                        name: r.candidate_name,
+                        votes: Number(r.vote_count),
+                        pct: Number(r.vote_percentage),
+                        isWinner: r.is_winner,
+                        rank: r.position_rank
+                      }))
+                    : candidates.filter(c => c.electionId === el.id).map(c => ({
+                        id: c.id,
+                        name: c.name,
+                        votes: c.votes,
+                        pct: el.votesCast > 0 ? Number(((c.votes / el.votesCast) * 100).toFixed(2)) : 0,
+                        isWinner: false,
+                        rank: 0
+                      })).sort((a, b) => b.votes - a.votes);
+
+                  // Colors for donut chart slices
+                  const chartColors = ['#4a9d8f', '#d4af37', '#9b5de5', '#f15bb5', '#00bbf9', '#00f5d4'];
+
+                  // Function to render the SVG Donut Chart dynamically
+                  const renderSvgDonut = () => {
+                    const total = el.votesCast;
+                    if (total === 0) {
+                      return (
+                        <svg width="160" height="160" viewBox="0 0 160 160">
+                          <circle cx="80" cy="80" r="60" fill="transparent" stroke="var(--border2)" strokeWidth="16" />
+                          <text x="80" y="85" textAnchor="middle" fill="var(--text3)" fontSize="12" fontWeight="bold">0 Votes</text>
+                        </svg>
+                      );
+                    }
+
+                    let accumulatedPct = 0;
+                    const radius = 60;
+                    const circumference = 2 * Math.PI * radius; // 376.991
+
+                    return (
+                      <svg width="160" height="160" viewBox="0 0 160 160">
+                        {standings.map((item, idx) => {
+                          const pct = (item.votes / total) * 100;
+                          const strokeLength = (pct / 100) * circumference;
+                          const strokeOffset = circumference - ((accumulatedPct / 100) * circumference);
+                          accumulatedPct += pct;
+                          const color = chartColors[idx % chartColors.length];
+
+                          return (
+                            <circle
+                              key={item.id}
+                              cx="80"
+                              cy="80"
+                              r={radius}
+                              fill="transparent"
+                              stroke={color}
+                              strokeWidth="16"
+                              strokeDasharray={`${strokeLength} ${circumference}`}
+                              strokeDashoffset={strokeOffset}
+                              transform="rotate(-90 80 80)"
+                              style={{ transition: 'stroke-dashoffset 0.5s ease-in-out' }}
+                            />
+                          );
+                        })}
+                        <circle cx="80" cy="80" r="44" fill="var(--bg2)" />
+                        <text x="80" y="84" textAnchor="middle" fill="var(--text)" fontSize="13" fontWeight="bold">
+                          {total}
+                        </text>
+                        <text x="80" y="96" textAnchor="middle" fill="var(--text3)" fontSize="10">
+                          Total Votes
+                        </text>
+                      </svg>
+                    );
+                  };
+
+                  return (
+                    <div className="results-detail-dashboard animate-fade-in" style={{ background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                      
+                      {/* HEADER SUMMARY */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--gold)', fontWeight: 'bold' }}>{el.id}</span>
+                            <span style={{ color: 'var(--text3)', fontSize: '11px' }}>•</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text3)', fontWeight: '600' }}>Round {el.currentRound} Standing</span>
+                          </div>
+                          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'var(--text)' }}>{el.name}</h3>
+                          <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text2)', lineHeight: '1.4' }}>{el.description}</p>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span className={`election-status-tag ${el.status.toLowerCase()}`} style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '20px', textTransform: 'uppercase', fontWeight: 'bold', display: 'inline-block', background: el.status === 'ACTIVE' ? 'var(--teal-bg)' : el.status === 'PAUSED' ? 'var(--gold-bg)' : el.status === 'DEADLOCK' ? 'var(--red-bg)' : 'var(--glass)', color: el.status === 'ACTIVE' ? 'var(--teal)' : el.status === 'PAUSED' ? 'var(--gold)' : el.status === 'DEADLOCK' ? 'var(--red)' : 'var(--text2)' }}>
+                            {el.status === 'ACTIVE' ? 'Running' : el.status === 'STOPPED' ? 'Stopped' : el.status}
+                          </span>
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Ended: {el.end}</span>
+                        </div>
+                      </div>
+
+                      {/* STATS TILES ROW */}
+                      <div className="results-stats-row-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.015)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Turnout Index</span>
+                          <span style={{ fontSize: '20px', fontWeight: '750', color: 'var(--teal)' }}>{el.turnoutPercentage}%</span>
+                          <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', marginTop: '4px' }}>
+                            <div style={{ width: `${el.turnoutPercentage}%`, height: '100%', background: 'var(--teal)' }}></div>
+                          </div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.015)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Whitelisted Voters</span>
+                          <span style={{ fontSize: '20px', fontWeight: '750', color: 'var(--text)' }}>{el.voters}</span>
+                          <span style={{ fontSize: '10.5px', color: 'var(--text3)' }}>Eligible registration profiles</span>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.015)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Secure Ballots Cast</span>
+                          <span style={{ fontSize: '20px', fontWeight: '750', color: 'var(--gold)' }}>{el.votesCast}</span>
+                          <span style={{ fontSize: '10.5px', color: 'var(--text3)' }}>Decoupled cryptographic records</span>
+                        </div>
+                      </div>
+
+                      {/* DETAILED STANDINGS AND DONUT CHART SECTION */}
+                      <div className="standings-viz-container" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '24px' }}>
+                        
+                        {/* LEFT: CANDIDATES STANDINGS */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: 'var(--text)' }}>Candidate Tally Standings</h4>
+                          <div style={{ border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+                            <table className="dash-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                              <thead>
+                                <tr style={{ background: 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--border)' }}>
+                                  <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Rank</th>
+                                  <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Candidate</th>
+                                  <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', textAlign: 'right' }}>Votes</th>
+                                  <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', textAlign: 'right' }}>Pct</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {standings.map((st, i) => {
+                                  const dbCand = candidates.find(c => c.id === st.id);
+                                  const isWinner = el.status === 'COMPLETED' || el.status === 'STOPPED' ? st.isWinner || (i === 0 && st.votes > 0 && !el.isTie) : false;
+                                  return (
+                                    <tr key={st.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', background: isWinner ? 'rgba(74, 157, 143, 0.03)' : 'transparent' }}>
+                                      <td style={{ padding: '12px 14px', fontWeight: 'bold', color: isWinner ? 'var(--teal)' : 'var(--text2)' }}>
+                                        {el.status === 'COMPLETED' || el.status === 'STOPPED' ? `#${st.rank || i+1}` : `#${i+1}`}
+                                      </td>
+                                      <td style={{ padding: '12px 14px' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                          <span style={{ fontWeight: '600', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            {st.name} {isWinner && <IconTrophy size={14} style={{ color: 'var(--teal)' }} />}
+                                          </span>
+                                          <span style={{ fontSize: '11px', color: 'var(--text3)' }}>{dbCand ? dbCand.dept : ''}</span>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: '600' }}>{st.votes}</td>
+                                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--text2)' }}>{st.pct}%</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Deadlock Tie-Break Panel */}
+                          {el.status === 'DEADLOCK' && (
+                            <div style={{ background: 'rgba(239, 83, 80, 0.03)', border: '1px solid rgba(239, 83, 80, 0.15)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: 'var(--red)' }}>
+                                <IconAlertTriangle size={18} />
+                                <span style={{ fontSize: '13px', fontWeight: '700' }}>TIE DEADLOCK DETECTED</span>
                               </div>
-                            </>
-                          ) : (
-                            <div className="no-votes-registered">No candidate allocations found.</div>
+                              <p style={{ margin: 0, fontSize: '12px', color: 'var(--text2)', lineHeight: '1.4' }}>
+                                Two or more leading candidates have received an equal number of votes. Select an administrative resolution option below to finalize the election:
+                              </p>
+                              <div style={{ display: 'flex', gap: '10px' }}>
+                                <button className="btn-action-sm gold" onClick={() => handleDeclareJointWinners(el.id)} style={{ flex: 1, padding: '10px', background: 'var(--gold)', color: 'black', fontWeight: 'bold', border: 'none', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                  <IconHeartHandshake size={16} /> Declare Joint Winners
+                                </button>
+                                <button className="btn-action-sm danger" onClick={() => handleReopenElection(el.id)} style={{ flex: 1, padding: '10px', background: 'transparent', color: 'var(--red)', border: '1px solid var(--red)', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                  <IconRefresh size={16} /> Re-Open for Round {el.currentRound + 1}
+                                </button>
+                              </div>
+                            </div>
                           )}
+
+                          {/* Winner Banner */}
+                          {(el.status === 'COMPLETED' || el.status === 'STOPPED') && (
+                            <div style={{ background: 'rgba(74, 157, 143, 0.04)', border: '1px solid rgba(74, 157, 143, 0.15)', borderRadius: '8px', padding: '16px', display: 'flex', gap: '14px', alignItems: 'center' }}>
+                              <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(74, 157, 143, 0.1)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <IconTrophy size={22} />
+                              </div>
+                              <div>
+                                <h5 style={{ margin: 0, fontSize: '11px', textTransform: 'uppercase', color: 'var(--teal)', fontWeight: 'bold', letterSpacing: '0.05em' }}>
+                                  {el.jointWinner ? 'Joint Winners Declared' : 'Official Outcome'}
+                                </h5>
+                                <p style={{ margin: '2px 0 0', fontSize: '13.5px', fontWeight: '700', color: 'var(--text)' }}>
+                                  {el.winners && el.winners.length > 0
+                                    ? el.winners.map(w => w.name).join(' and ')
+                                    : standings.filter(s => s.isWinner).map(s => s.name).join(' and ') || 'No winner declared'}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* RIGHT: VIZ (DONUT CHART) */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.005)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px' }}>
+                          <h4 style={{ margin: '0 0 16px', fontSize: '14px', fontWeight: '700', color: 'var(--text)', alignSelf: 'flex-start' }}>Vote Share Distribution</h4>
+                          
+                          <div style={{ margin: '12px 0' }}>
+                            {renderSvgDonut()}
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '16px' }}>
+                            {standings.map((st, idx) => (
+                              <div key={st.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: chartColors[idx % chartColors.length] }}></div>
+                                  <span style={{ fontWeight: '500', color: 'var(--text)' }}>{st.name}</span>
+                                </div>
+                                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text3)' }}>
+                                  {st.pct}% ({st.votes}v)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {/* CRYPTOGRAPHIC SECURITY INTEGRITY REPORT PANEL */}
+                      {el.integrity && (
+                        <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '10px' }}>
+                            <h4 style={{ margin: 0, fontSize: '13px', fontWeight: '700', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <IconShield size={18} style={{ color: 'var(--teal)' }} /> Ledger Tally Cryptographic Integrity Audit
+                            </h4>
+                            {Number(el.integrity.total_tokens_verified) === Number(el.integrity.total_votes_cast) ? (
+                              <span style={{ fontSize: '10px', color: 'var(--teal)', background: 'var(--teal-bg)', border: '1px solid rgba(74,157,143,0.2)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                ✓ TALLY INTEGRITY RECONCILED (100% MATCH)
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '10px', color: 'var(--red)', background: 'var(--red-bg)', border: '1px solid rgba(239,83,80,0.2)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                ⚠️ RECONCILIATION DISCREPANCY DETECTED
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase' }}>Tokens Generated</span>
+                              <span style={{ fontSize: '16px', fontWeight: '600', fontFamily: 'var(--font-mono)' }}>{el.integrity.total_tokens_generated}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--text3)' }}>Secure blind vectors</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase' }}>Tokens Verified (Used)</span>
+                              <span style={{ fontSize: '16px', fontWeight: '600', fontFamily: 'var(--font-mono)' }}>{el.integrity.total_tokens_verified}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--text3)' }}>Ballot-decoupled verification requests</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase' }}>Anonymous Ballots Logged</span>
+                              <span style={{ fontSize: '16px', fontWeight: '600', fontFamily: 'var(--font-mono)' }}>{el.integrity.total_votes_cast}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--text3)' }}>Secure votes cast in round {el.currentRound}</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase' }}>Voter Turnout Rate</span>
+                              <span style={{ fontSize: '16px', fontWeight: '600', fontFamily: 'var(--font-mono)' }}>{el.integrity.participation_percentage}%</span>
+                              <span style={{ fontSize: '10px', color: 'var(--text3)' }}>Tally turnout coverage</span>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: '12px', fontSize: '12px', color: 'var(--text2)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.01)', borderRadius: '6px' }}>
+                              <span>Failed Token Authorizations:</span>
+                              <strong style={{ color: el.integrity.invalid_token_attempts > 0 ? 'var(--gold)' : 'var(--text2)' }}>{el.integrity.invalid_token_attempts}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255, 255, 255, 0.01)', borderRadius: '6px' }}>
+                              <span>Verification Rate-Limit Lockouts:</span>
+                              <strong style={{ color: el.integrity.blocked_verification_attempts > 0 ? 'var(--red)' : 'var(--text2)' }}>{el.integrity.blocked_verification_attempts}</strong>
+                            </div>
+                          </div>
                         </div>
                       )}
 
-                      <button className="btn-action-sm" style={{ width: '100%', marginTop: '12px' }} onClick={() => setInspectedElection(el)}>
-                        <IconSearch size={18} /> Deep Inspection Report
-                      </button>
                     </div>
+                  );
+                })()}
+              </div>
 
-                  </div>
-                );
-              })}
             </div>
           </div>
         )}
 
-        {/* REPORTS & AUDITS TAB */}
-        {activeTab === 'Reports' && (
-          <div className="dashboard-body animate-fade-in">
-            <div className="reports-section-layout">
-              
-              {/* SUBTAB 1: AUDIT LOG PORTAL */}
-              <div className="users-table-card">
-                <div className="audit-header-controls">
-                  <h2 className="tab-section-title">View 1: Cryptographic Audit Logs Portal</h2>
-                  
-                  <div className="audit-filters-row">
-                    <select value={auditSeverityFilter} onChange={(e) => setAuditSeverityFilter(e.target.value)}>
-                      <option value="ALL">All Severity Levels</option>
-                      <option value="INFO">INFO logs only</option>
-                      <option value="WARNING">WARNING logs only</option>
-                      <option value="CRITICAL">CRITICAL logs only</option>
-                    </select>
+        {/* SECURITY ANALYTICS TAB */}
+        {activeTab === 'Security' && (
+          <div className="dashboard-body animate-fade-in" style={{ padding: '24px' }}>
+            <div className="page-intro-header" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 className="tab-section-title" style={{ margin: 0, fontSize: '22px', fontWeight: '700', color: 'var(--text)' }}>
+                  Security Analytics &amp; Hardening Cockpit
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text2)' }}>
+                  Observe real-time administrative and voter security events, lockouts, and suspicious client vectors.
+                </p>
+              </div>
+              <button 
+                className="btn-action-sm gold" 
+                onClick={fetchSecurityData} 
+                disabled={securityLoading}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px' }}
+              >
+                <IconRefresh size={16} className={securityLoading ? 'spin' : ''} /> {securityLoading ? 'Syncing...' : 'Force Refresh Analytics'}
+              </button>
+            </div>
 
-                    <div className="time-filter-inputs">
-                      <input 
-                        type="time" 
-                        value={auditTimeFilterFrom}
-                        onChange={(e) => setAuditTimeFilterFrom(e.target.value)}
-                      />
-                      <span>to</span>
-                      <input 
-                        type="time" 
-                        value={auditTimeFilterTo}
-                        onChange={(e) => setAuditTimeFilterTo(e.target.value)}
-                      />
-                    </div>
+            {/* KPI STAT CARDS */}
+            <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+              <div style={{ background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Active Sessions</span>
+                <span style={{ fontSize: '24px', fontWeight: '750', color: 'var(--teal)' }}>{securityData?.verified_sessions || 0} / {securityData?.active_sessions || 0}</span>
+                <span style={{ fontSize: '10.5px', color: 'var(--text3)' }}>Verified vs Total sockets</span>
+              </div>
+              <div style={{ background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Failed Logins Today</span>
+                <span style={{ fontSize: '24px', fontWeight: '750', color: 'var(--gold)' }}>{securityData?.failed_logins_today || 0}</span>
+                <span style={{ fontSize: '10.5px', color: 'var(--text3)' }}>Daily auth failures</span>
+              </div>
+              <div style={{ background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Active Lockouts</span>
+                <span style={{ fontSize: '24px', fontWeight: '750', color: (securityData?.active_lockouts || 0) > 0 ? 'var(--red)' : 'var(--text)' }}>
+                  {securityData?.active_lockouts || 0}
+                </span>
+                <span style={{ fontSize: '10.5px', color: 'var(--text3)' }}>Accounts currently cooldown-locked</span>
+              </div>
+              <div style={{ background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Suspicious Events</span>
+                <span style={{ fontSize: '24px', fontWeight: '750', color: (securityData?.suspicious_activities_today || 0) > 0 ? 'var(--red)' : 'var(--text)' }}>
+                  {securityData?.suspicious_activities_today || 0}
+                </span>
+                <span style={{ fontSize: '10.5px', color: 'var(--text3)' }}>Threat-detection triggers today</span>
+              </div>
+            </div>
+
+            <div className="security-tables-layout" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
+              
+              {/* SUSPICIOUS ACTIVITY LOGS */}
+              <div className="users-table-card" style={{ padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <IconAlertTriangle size={18} style={{ color: 'var(--gold)' }} /> Threat Intelligence: Suspicious Client Activities
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--text3)' }}>Last refreshed: {securityData?.last_refreshed_at ? new Date(securityData.last_refreshed_at).toLocaleTimeString() : 'N/A'}</span>
+                </div>
+
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                  <table className="dash-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Event type</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Actor</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Session id</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Reason</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Severity</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(securityData?.suspicious_activities || []).map((sa) => (
+                        <tr key={sa.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                          <td style={{ padding: '12px 14px', fontWeight: '600', color: 'var(--text)' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11.5px' }}>{sa.event_type}</span>
+                          </td>
+                          <td style={{ padding: '12px 14px' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11.5px', color: 'var(--text2)' }}>{sa.actor_identifier || 'ANONYMOUS'}</span>
+                          </td>
+                          <td style={{ padding: '12px 14px' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)' }}>{sa.session_id ? `${sa.session_id.substring(0, 8)}...` : 'N/A'}</span>
+                          </td>
+                          <td style={{ padding: '12px 14px', fontSize: '12.5px', color: 'var(--text2)' }}>{sa.reason}</td>
+                          <td style={{ padding: '12px 14px' }}>
+                            <span style={{ 
+                              fontSize: '9px', 
+                              padding: '2px 8px', 
+                              borderRadius: '4px', 
+                              textTransform: 'uppercase', 
+                              fontWeight: 'bold', 
+                              background: sa.severity === 'CRITICAL' ? 'rgba(239, 83, 80, 0.15)' : sa.severity === 'HIGH' ? 'rgba(242, 148, 54, 0.15)' : sa.severity === 'MEDIUM' ? 'rgba(212, 168, 67, 0.15)' : 'rgba(74, 157, 143, 0.15)', 
+                              color: sa.severity === 'CRITICAL' ? 'var(--red)' : sa.severity === 'HIGH' ? '#f29436' : sa.severity === 'MEDIUM' ? 'var(--gold)' : 'var(--teal)' 
+                            }}>
+                              {sa.severity}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 14px', fontSize: '11.5px', color: 'var(--text3)' }}>
+                            {new Date(sa.created_at).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                      {(securityData?.suspicious_activities || []).length === 0 && (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text3)' }}>
+                            No suspicious client vectors identified.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* SYSTEM/EDGE ERRORS */}
+              <div className="users-table-card" style={{ padding: '20px' }}>
+                <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: '700', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <IconAlertCircle size={18} style={{ color: 'var(--red)' }} /> Edge &amp; API Monitor: System Errors
+                </h3>
+
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                  <table className="dash-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Source</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Error message</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Severity</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(securityData?.system_errors || []).map((se) => (
+                        <tr key={se.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                          <td style={{ padding: '12px 14px', fontWeight: '600', color: 'var(--text)' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11.5px' }}>{se.source}</span>
+                          </td>
+                          <td style={{ padding: '12px 14px', fontSize: '12.5px', color: 'var(--text2)' }}>{se.error_message}</td>
+                          <td style={{ padding: '12px 14px' }}>
+                            <span style={{ 
+                              fontSize: '9px', 
+                              padding: '2px 8px', 
+                              borderRadius: '4px', 
+                              textTransform: 'uppercase', 
+                              fontWeight: 'bold', 
+                              background: se.severity === 'CRITICAL' ? 'rgba(239, 83, 80, 0.15)' : se.severity === 'HIGH' ? 'rgba(242, 148, 54, 0.15)' : 'rgba(74, 157, 143, 0.15)', 
+                              color: se.severity === 'CRITICAL' ? 'var(--red)' : se.severity === 'HIGH' ? '#f29436' : 'var(--teal)' 
+                            }}>
+                              {se.severity}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 14px', fontSize: '11.5px', color: 'var(--text3)' }}>
+                            {new Date(se.created_at).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                      {(securityData?.system_errors || []).length === 0 && (
+                        <tr>
+                          <td colSpan="4" style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text3)' }}>
+                            No system errors logged.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* LOG RETENTION POLICY AND CONTROLS */}
+              <div style={{ background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ maxWidth: '70%' }}>
+                  <h4 style={{ margin: '0 0 6px', fontSize: '15px', fontWeight: '700', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <IconScale size={18} style={{ color: 'var(--teal)' }} /> Operational Logs Retention Policy
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text2)', lineHeight: '1.4' }}>
+                    VoteGuard is configured with a strict log retention schedule. General security events are stored for <strong>180 days</strong>, while critical system errors and threat warnings are retained for <strong>365 days</strong> before automatic truncation.
+                  </p>
+                </div>
+                <button 
+                  className="btn-action-sm gold" 
+                  onClick={handleManualRetentionCleanup}
+                  style={{ padding: '12px 20px', background: 'var(--gold)', color: 'black', fontWeight: 'bold', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                >
+                  Trigger Manual Cleanup
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* REPORTS & AUDITS TAB (AUDIT PORTAL) */}
+        {activeTab === 'Reports' && (
+          <div className="dashboard-body animate-fade-in" style={{ padding: '24px' }}>
+            <div className="page-intro-header" style={{ marginBottom: '24px' }}>
+              <h2 className="tab-section-title" style={{ margin: 0, fontSize: '22px', fontWeight: '700', color: 'var(--text)' }}>
+                Cryptographic Audit Portal
+              </h2>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text2)' }}>
+                Query formal ledger audit entries, filter governance logs, and review cryptographic election integrity tallies.
+              </p>
+            </div>
+
+            <div className="audit-portal-split" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.1fr', gap: '24px', alignItems: 'start', marginBottom: '24px' }}>
+              
+              {/* LEFT COLUMN: AUDIT LOGS QUERY ENGINE */}
+              <div className="users-table-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text)' }}>
+                    Governance Audit Logs Stream
+                  </h3>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      className="btn-action-sm gold" 
+                      onClick={() => handleExportXlsx(auditLogsFromDb, 'voteguard_audit_logs', 'Cryptographic Audit Logs Portal', adminProfile?.admin_id || 'admin')}
+                      disabled={auditLogsFromDb.length === 0}
+                      style={{ fontSize: '11px', padding: '6px 12px' }}
+                    >
+                      Export XLSX
+                    </button>
+                    <button 
+                      className="btn-action-sm gold" 
+                      onClick={() => handleExportCsv(auditLogsFromDb, 'voteguard_audit_logs', 'Cryptographic Audit Logs Portal', adminProfile?.admin_id || 'admin')}
+                      disabled={auditLogsFromDb.length === 0}
+                      style={{ fontSize: '11px', padding: '6px 12px' }}
+                    >
+                      Export CSV
+                    </button>
                   </div>
                 </div>
 
-                <div className="audit-timeline-stream">
-                  {filteredLogs.length === 0 ? (
-                    <div className="no-logs-msg">No logs matching filter constraints.</div>
+                {/* FILTERS PANEL */}
+                <div className="audit-filters-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Event Type</label>
+                    <select 
+                      value={auditEventFilter} 
+                      onChange={(e) => setAuditEventFilter(e.target.value)}
+                      style={{ padding: '8px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12.5px' }}
+                    >
+                      <option value="ALL">All Event Types</option>
+                      <option value="LOGIN_SUCCESS">LOGIN_SUCCESS</option>
+                      <option value="LOGIN_FAILURE">LOGIN_FAILURE</option>
+                      <option value="OTP_SENT">OTP_SENT</option>
+                      <option value="OTP_SUCCESS">OTP_SUCCESS</option>
+                      <option value="OTP_FAILURE">OTP_FAILURE</option>
+                      <option value="TOKEN_REQUEST">TOKEN_REQUEST</option>
+                      <option value="TOKEN_VERIFY_SUCCESS">TOKEN_VERIFY_SUCCESS</option>
+                      <option value="TOKEN_VERIFY_FAILURE">TOKEN_VERIFY_FAILURE</option>
+                      <option value="VOTE_SUBMITTED">VOTE_SUBMITTED</option>
+                      <option value="ACCOUNT_LOCKED">ACCOUNT_LOCKED</option>
+                      <option value="RATE_LIMIT_TRIGGERED">RATE_LIMIT_TRIGGERED</option>
+                      <option value="ELECTION_COMPLETED">ELECTION_COMPLETED</option>
+                      <option value="ELECTION_STOPPED">ELECTION_STOPPED</option>
+                      <option value="REPORT_COMPILE">REPORT_COMPILE</option>
+                      <option value="ELIGIBILITY_OVERRIDE">ELIGIBILITY_OVERRIDE</option>
+                      <option value="BULK_ACTION">BULK_ACTION</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Election Link</label>
+                    <select 
+                      value={auditElectionFilter} 
+                      onChange={(e) => setAuditElectionFilter(e.target.value)}
+                      style={{ padding: '8px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12.5px' }}
+                    >
+                      <option value="ALL">All Elections</option>
+                      {elections.map(el => (
+                        <option key={el.id} value={el.id}>{el.id} - {el.name.substring(0, 24)}...</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Date From</label>
+                    <input 
+                      type="date" 
+                      value={auditDateFrom} 
+                      onChange={(e) => setAuditDateFrom(e.target.value)}
+                      style={{ padding: '7px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12.5px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Date To</label>
+                    <input 
+                      type="date" 
+                      value={auditDateTo} 
+                      onChange={(e) => setAuditDateTo(e.target.value)}
+                      style={{ padding: '7px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12.5px' }}
+                    />
+                  </div>
+
+                  <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                    <button 
+                      className="btn-action-sm" 
+                      onClick={() => {
+                        setAuditEventFilter('ALL');
+                        setAuditElectionFilter('ALL');
+                        setAuditDateFrom('');
+                        setAuditDateTo('');
+                      }}
+                      style={{ fontSize: '11px', padding: '6px 12px' }}
+                    >
+                      Reset Filters
+                    </button>
+                  </div>
+                </div>
+
+                {/* LOGS TABLE */}
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                  {auditLogsLoading ? (
+                    <div style={{ textAlign: 'center', padding: '40px 10px', fontSize: '13px', color: 'var(--text3)' }}>
+                      Loading cryptographic log vectors...
+                    </div>
                   ) : (
-                    filteredLogs.map((log, idx) => (
-                      <div key={idx} className={`audit-timeline-item level-${log.level.toLowerCase()}`}>
-                        <div className="timeline-item-indicator"></div>
-                        <div className="timeline-item-meta">
-                          <span className="log-timestamp">[{log.ts}]</span>
-                          <span className={`log-severity-tag ${log.level.toLowerCase()}`}>{log.level}</span>
-                          <span className="log-event-type">{highlightMatch(log.ev, globalSearch)}</span>
-                          <span className="log-user">{highlightMatch(log.usr, globalSearch)}</span>
-                        </div>
-                        <div className="timeline-item-desc">{highlightMatch(log.desc, globalSearch)}</div>
-                      </div>
-                    ))
+                    <table className="dash-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ background: 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--border)' }}>
+                          <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Timestamp</th>
+                          <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Event Type</th>
+                          <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Actor</th>
+                          <th style={{ padding: '10px 14px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)' }}>Metadata payload</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditLogsFromDb.map((log) => {
+                          const metaString = log.metadata_json && Object.keys(log.metadata_json).length > 0
+                            ? Object.keys(log.metadata_json).map(k => `${k}: ${log.metadata_json[k]}`).join(', ')
+                            : log.details || 'None';
+
+                          return (
+                            <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                              <td style={{ padding: '12px 14px', fontSize: '11.5px', color: 'var(--text3)' }}>
+                                {new Date(log.created_at).toLocaleString()}
+                              </td>
+                              <td style={{ padding: '12px 14px' }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11.5px', fontWeight: '600', color: 'var(--text)' }}>
+                                  {log.event_type}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text2)' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                  <span style={{ fontWeight: '500' }}>{log.actor_identifier || 'system'}</span>
+                                  <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{log.actor_type}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 14px', fontSize: '11.5px', color: 'var(--text3)', maxWidth: '220px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={metaString}>
+                                {metaString}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {auditLogsFromDb.length === 0 && (
+                          <tr>
+                            <td colSpan="4" style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text3)', fontSize: '13px' }}>
+                              No log trace matches the current filter settings.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   )}
                 </div>
-
-                <div className="audit-logs-pagination-info" style={{ textAlign: 'center', marginTop: '16px', fontSize: '12px', color: 'var(--text2)' }}>
-                  Showing {Math.min(displayedLogsCount, filteredLogs.length)} of {filteredLogs.length} matching entries
-                </div>
-                {filteredLogs.length > displayedLogsCount && (
-                  <button className="btn-action-sm gold" style={{ margin: '10px auto 0', display: 'block' }} onClick={() => setDisplayedLogsCount(prev => prev + 10)}>
-                    Load older logs (Lazy Retrieval)
-                  </button>
-                )}
               </div>
 
-              {/* SUBTAB 2: EXPORT ARCHIVE ENGINE */}
-              <div className="users-table-card">
-                <h2 className="tab-section-title">View 2: Reports Archive &amp; Export Engine</h2>
-                <p className="section-desc">Download signed PDF summaries. Live results download is integrated here.</p>
+              {/* RIGHT COLUMN: ELECTION INTEGRITY AUDIT PANEL */}
+              <div className="users-table-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <IconShield size={18} style={{ color: 'var(--teal)' }} /> Ledger Tally Cryptographic Integrity Panel
+                </h3>
 
-                <div className="archive-export-list">
-                  {elections.map((el) => (
-                    <div key={el.id} className="export-row-item">
-                      <div className="export-meta">
-                        <span className="code">{el.id}</span>
-                        <div className="export-info-text">
-                          <span className="title">{el.name}</span>
-                          <span className="desc">{el.description}</span>
-                        </div>
-                      </div>
-
-                      <div className="export-actions-cell">
-                        {exportingElectionId === el.id ? (
-                          <div className="export-progress-container">
-                            <div className="progress-bar-track">
-                              <div className="progress-bar-fill" style={{ width: `${exportProgress}%` }}></div>
-                            </div>
-                            <span>Generating report PDF: {exportProgress}%</span>
-                          </div>
-                        ) : (
-                          <button className="btn-action-sm gold" onClick={() => handleExportPdfReport(el.id)}>
-                            <IconInbox size={18} /> Export Report PDF
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '600' }}>Select Election to Inspect</label>
+                  <select 
+                    value={selectedAuditElectionId} 
+                    onChange={(e) => setSelectedAuditElectionId(e.target.value)}
+                    style={{ padding: '10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px', width: '100%' }}
+                  >
+                    <option value="">-- Choose Election --</option>
+                    {elections.map(el => (
+                      <option key={el.id} value={el.id}>{el.id} - {el.name}</option>
+                    ))}
+                  </select>
                 </div>
 
-                {/* PDF Signatures display mockup */}
-                {signedPdfData && (
-                  <div className="pdf-signed-receipt-modal">
-                    <h3><IconFileDescription size={24} /> Signed PDF Document Compiled</h3>
-                    <div className="signed-receipt-details">
-                      <p><strong>Report Title:</strong> {signedPdfData.title}</p>
-                      <p><strong>Target ID:</strong> {signedPdfData.id}</p>
-                      <p><strong>Report ID Code:</strong> <span className="code">{signedPdfData.reportId}</span></p>
-                      <p><strong>Voter Turnout:</strong> {signedPdfData.votes} / {signedPdfData.voters} votes cast</p>
+                {integrityLoading ? (
+                  <div style={{ textAlign: 'center', padding: '48px 10px', color: 'var(--text3)', fontSize: '13.5px' }}>
+                    <div style={{ width: '24px', height: '24px', border: '2px solid rgba(74, 157, 143, 0.2)', borderTop: '2px solid var(--teal)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
+                    Running automated ledger checks...
+                  </div>
+                ) : integrityReport ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }} className="animate-fade-in">
+                    
+                    {/* STATUS BANNER */}
+                    <div style={{ 
+                      background: integrityReport.integrity_status === 'PASSED' ? 'rgba(74, 157, 143, 0.05)' : 'rgba(239, 83, 80, 0.05)', 
+                      border: integrityReport.integrity_status === 'PASSED' ? '1px solid rgba(74, 157, 143, 0.25)' : '1px solid rgba(239, 83, 80, 0.25)', 
+                      borderRadius: '8px', 
+                      padding: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px'
+                    }}>
+                      <div style={{ 
+                        width: '32px', 
+                        height: '32px', 
+                        borderRadius: '50%', 
+                        background: integrityReport.integrity_status === 'PASSED' ? 'rgba(74, 157, 143, 0.15)' : 'rgba(239, 83, 80, 0.15)', 
+                        color: integrityReport.integrity_status === 'PASSED' ? 'var(--teal)' : 'var(--red)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 'bold',
+                        fontSize: '18px'
+                      }}>
+                        {integrityReport.integrity_status === 'PASSED' ? '✓' : '✗'}
+                      </div>
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: integrityReport.integrity_status === 'PASSED' ? 'var(--teal)' : 'var(--red)' }}>
+                          Ledger Audit: {integrityReport.integrity_status}
+                        </h4>
+                        <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text2)', lineHeight: '1.3' }}>
+                          {integrityReport.integrity_status === 'PASSED' 
+                            ? 'All cryptographic counts reconcile according to the VoteGuard election formula rules.' 
+                            : 'Cryptographic discrepancy detected. Check the list of failing rules below.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* METRICS GRID */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                      <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text3)' }}>Eligible Voters</span>
+                        <span style={{ fontSize: '16px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>{integrityReport.eligible_voters}</span>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text3)' }}>Tokens Generated</span>
+                        <span style={{ fontSize: '16px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>{integrityReport.tokens_generated}</span>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text3)' }}>Tokens Verified</span>
+                        <span style={{ fontSize: '16px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>{integrityReport.tokens_verified}</span>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text3)' }}>Ballots Cast</span>
+                        <span style={{ fontSize: '16px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>{integrityReport.votes_cast}</span>
+                      </div>
+                    </div>
+
+                    {/* FORMULA INEQUALITIES STATUS */}
+                    <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <h4 style={{ margin: '0 0 4px', fontSize: '12px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: '700' }}>
+                        Formula Validation Details
+                      </h4>
                       
-                      <div className="signature-seal-block">
-                        <div className="seal-logo"><IconShield size={48} /></div>
-                        <div className="seal-text">
-                          <p><strong>GENERATED BY:</strong> Super Administrator</p>
-                          <p><strong>GENERATED ON:</strong> {signedPdfData.date}</p>
-                          <p className="verif-status">✓ CRYPTOGRAPHICALLY SIGNED VIA ECDSA P-256</p>
+                      {/* Check 1: Votes Cast <= Tokens Verified */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px' }}>
+                        <span style={{ color: 'var(--text2)' }}>Votes Cast &le; Tokens Verified</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)' }}>({integrityReport.votes_cast} &le; {integrityReport.tokens_verified})</span>
+                          <span style={{ color: integrityReport.votes_cast <= integrityReport.tokens_verified ? 'var(--teal)' : 'var(--red)', fontWeight: 'bold' }}>
+                            {integrityReport.votes_cast <= integrityReport.tokens_verified ? '✓ PASSED' : '✗ FAILED'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Check 2: Tokens Verified <= Tokens Generated */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px' }}>
+                        <span style={{ color: 'var(--text2)' }}>Tokens Verified &le; Tokens Generated</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)' }}>({integrityReport.tokens_verified} &le; {integrityReport.tokens_generated})</span>
+                          <span style={{ color: integrityReport.tokens_verified <= integrityReport.tokens_generated ? 'var(--teal)' : 'var(--red)', fontWeight: 'bold' }}>
+                            {integrityReport.tokens_verified <= integrityReport.tokens_generated ? '✓ PASSED' : '✗ FAILED'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Check 3: Tokens Generated <= Eligible Voters */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px' }}>
+                        <span style={{ color: 'var(--text2)' }}>Tokens Generated &le; Eligible Voters</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)' }}>({integrityReport.tokens_generated} &le; {integrityReport.eligible_voters})</span>
+                          <span style={{ color: integrityReport.tokens_generated <= integrityReport.eligible_voters ? 'var(--teal)' : 'var(--red)', fontWeight: 'bold' }}>
+                            {integrityReport.tokens_generated <= integrityReport.eligible_voters ? '✓ PASSED' : '✗ FAILED'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Check 4: Results Snapshot sum = Votes Cast in round */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px' }}>
+                        <span style={{ color: 'var(--text2)' }}>Results Snapshot = Votes Cast</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {(() => {
+                            const snapshotSum = integrityReport.rounds && integrityReport.rounds.length > 0
+                              ? integrityReport.rounds.reduce((sum, r) => sum + Number(r.total_votes), 0)
+                              : integrityReport.votes_cast;
+                            const isMatch = !integrityReport.integrity_reasons || !integrityReport.integrity_reasons.some(r => r.includes('Snapshot'));
+                            return (
+                              <>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)' }}>({snapshotSum} == {integrityReport.votes_cast})</span>
+                                <span style={{ color: isMatch ? 'var(--teal)' : 'var(--red)', fontWeight: 'bold' }}>
+                                  {isMatch ? '✓ PASSED' : '✗ FAILED'}
+                                </span>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
-                    <button className="btn-action-sm" onClick={() => setSignedPdfData(null)}>Close Preview</button>
+
+                    {/* ERROR LIST DETAILS */}
+                    {integrityReport.integrity_reasons && integrityReport.integrity_reasons.length > 0 && (
+                      <div style={{ background: 'rgba(239, 83, 80, 0.02)', border: '1px solid rgba(239, 83, 80, 0.15)', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <h5 style={{ margin: 0, fontSize: '11px', textTransform: 'uppercase', color: 'var(--red)', fontWeight: 'bold' }}>
+                          Failing Audit Checks Reasons
+                        </h5>
+                        <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '12px', color: 'var(--text2)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {integrityReport.integrity_reasons.map((reason, idx) => (
+                            <li key={idx}>{reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                  </div>
+                ) : (
+                  <div style={{ background: 'rgba(255,255,255,0.005)', border: '1px dashed var(--border)', borderRadius: '8px', padding: '36px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+                    Choose an election from the selector to perform the cryptographical audit checks.
                   </div>
                 )}
-
               </div>
 
+            </div>
+
+            {/* EXPORT ARCHIVE ENGINE */}
+            <div className="users-table-card" style={{ padding: '20px' }}>
+              <h2 className="tab-section-title">Reports Archive &amp; PDF Export Engine</h2>
+              <p style={{ margin: '4px 0 16px', fontSize: '13px', color: 'var(--text2)' }}>Download cryptographically signed PDF summaries and election receipts.</p>
+
+              <div className="archive-export-list">
+                {elections.map((el) => (
+                  <div key={el.id} className="export-row-item">
+                    <div className="export-meta">
+                      <span className="code">{el.id}</span>
+                      <div className="export-info-text">
+                        <span className="title">{el.name}</span>
+                        <span className="desc">{el.description}</span>
+                      </div>
+                    </div>
+
+                    <div className="export-actions-cell">
+                      {exportingElectionId === el.id ? (
+                        <div className="export-progress-container">
+                          <div className="progress-bar-track">
+                            <div className="progress-bar-fill" style={{ width: `${exportProgress}%` }}></div>
+                          </div>
+                          <span>Generating report PDF: {exportProgress}%</span>
+                        </div>
+                      ) : (
+                        <button className="btn-action-sm gold" onClick={() => handleExportPdfReport(el.id)}>
+                          <IconInbox size={18} /> Export Report PDF
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* PDF Signatures display mockup */}
+              {signedPdfData && (
+                <div className="pdf-signed-receipt-modal" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', marginTop: '20px' }}>
+                  <h3><IconFileDescription size={24} /> Signed PDF Document Compiled</h3>
+                  <div className="signed-receipt-details" style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '12px 0' }}>
+                    <p style={{ margin: 0 }}><strong>Report Title:</strong> {signedPdfData.title}</p>
+                    <p style={{ margin: 0 }}><strong>Target ID:</strong> {signedPdfData.id}</p>
+                    <p style={{ margin: 0 }}><strong>Report ID Code:</strong> <span className="code">{signedPdfData.reportId}</span></p>
+                    <p style={{ margin: 0 }}><strong>Voter Turnout:</strong> {signedPdfData.votes} / {signedPdfData.voters} votes cast</p>
+                    
+                    <div className="signature-seal-block" style={{ border: '1px solid var(--teal)', padding: '12px', borderRadius: '8px', background: 'rgba(74,157,143,0.05)', display: 'flex', alignItems: 'center', gap: '16px', marginTop: '10px' }}>
+                      <div className="seal-logo" style={{ color: 'var(--teal)' }}><IconShield size={40} /></div>
+                      <div className="seal-text">
+                        <p style={{ margin: 0 }}><strong>GENERATED BY:</strong> Super Administrator</p>
+                        <p style={{ margin: 0 }}><strong>GENERATED ON:</strong> {signedPdfData.date}</p>
+                        <p className="verif-status" style={{ margin: 0, color: 'var(--teal)', fontWeight: 'bold' }}>✓ CRYPTOGRAPHICALLY SIGNED VIA ECDSA P-256</p>
+                      </div>
+                    </div>
+                  </div>
+                  <button className="btn-action-sm" onClick={() => setSignedPdfData(null)}>Close Preview</button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -3065,6 +4194,176 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* OPERATIONS CONTROL TAB */}
+        {activeTab === 'Operations' && (
+          <div className="dashboard-body animate-fade-in">
+            <div className="dash-system-row">
+              {/* KPIs & Diagnostics Dashboard */}
+              <div className="dash-system-card" style={{ flex: '2 1 60%' }}>
+                <span className="dash-control-title font-title">System Health & Telemetry Metrics (12 KPIs)</span>
+                {healthLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--gold)' }}>Loading health telemetry...</div>
+                ) : (
+                  <div className="system-status-grid" style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Database Status</span>
+                      <span className={`sys-val-mono ${healthData?.database_status === 'healthy' ? 'color-green' : 'color-red'}`}>
+                        {healthData?.database_status?.toUpperCase() || 'UNKNOWN'}
+                      </span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Email Status</span>
+                      <span className={`sys-val-mono ${healthData?.email_service_status === 'healthy' ? 'color-green' : 'color-orange'}`}>
+                        {healthData?.email_service_status?.toUpperCase() || 'UNKNOWN'}
+                      </span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">System Uptime</span>
+                      <span className="sys-val-mono color-green">{healthData?.system_uptime || '99.98%'}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Application Version</span>
+                      <span className="sys-val-mono">{healthData?.application_version || '1.0.0'}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Total Elections</span>
+                      <span className="sys-val-mono">{healthData?.total_elections ?? 0}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Completed Elections</span>
+                      <span className="sys-val-mono">{healthData?.completed_elections ?? 0}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Active Election</span>
+                      <span className="sys-val-mono color-green">{healthData?.current_active_election || 'None'}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Total Registered Voters</span>
+                      <span className="sys-val-mono">{healthData?.total_voters ?? 0}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Total Votes Cast</span>
+                      <span className="sys-val-mono">{healthData?.total_votes_cast ?? 0}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Tokens Generated</span>
+                      <span className="sys-val-mono">{healthData?.total_tokens_generated ?? 0}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Tokens Verified</span>
+                      <span className="sys-val-mono">{healthData?.total_tokens_verified ?? 0}</span>
+                    </div>
+                    <div className="system-status-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="sys-label">Active Verified Sessions</span>
+                      <span className="sys-val-mono color-green">{healthData?.active_sessions ?? 0}</span>
+                    </div>
+                  </div>
+                )}
+                <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
+                  <button className="btn-action-sm gold" onClick={fetchOperationsStatus}>Refresh System Health</button>
+                  <button className="btn-action-sm gold" onClick={handleExportAuditPackage}>Export Audit Package</button>
+                </div>
+              </div>
+
+              {/* Backup Registry & History Panel */}
+              <div className="dash-system-card" style={{ flex: '1 1 35%' }}>
+                <span className="dash-control-title font-title">Backup Registry Operations</span>
+                <div className="backup-telemetry-box" style={{ marginTop: '20px', maxHeight: '180px', overflowY: 'auto' }}>
+                  {backupHistory.length === 0 ? (
+                    <div style={{ color: 'var(--text3)', fontSize: '12px', textAlign: 'center', padding: '20px' }}>No backups logged.</div>
+                  ) : (
+                    backupHistory.map((b) => (
+                      <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <span style={{ fontFamily: 'monospace' }}>{new Date(b.created_at).toLocaleString()}</span>
+                        <span style={{ color: b.backup_status === 'SUCCESS' ? 'var(--teal)' : 'var(--red)', fontWeight: 'bold' }}>{b.backup_type} ({b.backup_status})</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <button 
+                  className="btn-action-sm gold" 
+                  style={{ width: '100%', marginTop: '16px' }}
+                  onClick={async () => {
+                    try {
+                      const { error } = await supabase.from('backup_registry').insert({
+                        backup_type: 'MANUAL',
+                        backup_status: 'SUCCESS',
+                        notes: 'Manual backup registry log generated via Operations dashboard.'
+                      });
+                      if (error) throw error;
+                      alert('Manual backup successfully registered.');
+                      fetchOperationsStatus();
+                    } catch (e) {
+                      alert('Failed to register backup: ' + e.message);
+                    }
+                  }}
+                >
+                  Register Manual Backup
+                </button>
+              </div>
+            </div>
+
+            {/* INTEGRITY TESTING PANEL */}
+            <div className="users-table-card" style={{ marginTop: '20px' }}>
+              <h2 className="tab-section-title">Integrity Verification Scanning Cockpit</h2>
+              <p className="section-desc">Select an election to compute and verify the integrity mathematical equations: Votes Cast &le; Tokens Verified &le; Tokens Generated &le; Eligible Voters.</p>
+              
+              <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '20px' }}>
+                <select 
+                  style={{ background: '#11221f', border: '1px solid rgba(74, 157, 143, 0.3)', borderRadius: '6px', color: 'var(--text)', padding: '8px 12px', outline: 'none' }}
+                  value={integrityElectionId} 
+                  onChange={(e) => setIntegrityElectionId(e.target.value)}
+                >
+                  <option value="">-- Select Election --</option>
+                  {elections.map((el) => (
+                    <option key={el.id} value={el.id}>{el.election_name}</option>
+                  ))}
+                </select>
+                <button className="btn-main gold" onClick={runIntegrityScan} disabled={!integrityElectionId || opsIntegrityLoading}>
+                  {opsIntegrityLoading ? 'Scanning...' : 'Run Integrity Scan'}
+                </button>
+              </div>
+
+              {opsIntegrityReport && (
+                <div style={{ padding: '20px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(74, 157, 143, 0.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px' }}>Election ID: {opsIntegrityReport.election_id}</h3>
+                    <span style={{ 
+                      padding: '4px 12px', 
+                      borderRadius: '12px', 
+                      fontSize: '13px', 
+                      fontWeight: 'bold',
+                      background: opsIntegrityReport.integrity_status === 'PASSED' ? 'rgba(74, 157, 143, 0.15)' : 'rgba(211, 84, 0, 0.15)',
+                      color: opsIntegrityReport.integrity_status === 'PASSED' ? 'var(--teal)' : 'var(--red)',
+                      border: `1px solid ${opsIntegrityReport.integrity_status === 'PASSED' ? 'var(--teal)' : 'var(--red)'}`
+                    }}>
+                      STATUS: {opsIntegrityReport.integrity_status}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', fontSize: '13.5px' }}>
+                    <div>
+                      <div><strong>Total Eligible Voters:</strong> {opsIntegrityReport.eligible_voters}</div>
+                      <div><strong>Tokens Generated:</strong> {opsIntegrityReport.tokens_generated}</div>
+                      <div><strong>Tokens Verified:</strong> {opsIntegrityReport.tokens_verified}</div>
+                      <div><strong>Votes Cast (Round):</strong> {opsIntegrityReport.votes_cast}</div>
+                    </div>
+                    <div>
+                      <div><strong>Results Standings Votes Sum:</strong> {opsIntegrityReport.standings_votes_sum ?? 0}</div>
+                      <div><strong>Turnout Percentage:</strong> {opsIntegrityReport.turnout_percentage}%</div>
+                      {opsIntegrityReport.violation_details && (
+                        <div style={{ color: 'var(--red)', marginTop: '8px' }}>
+                          <strong>Violation:</strong> {opsIntegrityReport.violation_details}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ALERTS TERMINAL TAB */}
         {activeTab === 'Alerts' && (
           <div className="dashboard-body animate-fade-in">
@@ -3090,19 +4389,23 @@ export default function Dashboard() {
 
                   <div className="resolved-alerts-archive">
                     <h3 className="archive-title">Historical Resolved Alerts Logs:</h3>
-                    {resolvedAlerts.map(alertItem => (
-                      <div key={alertItem.id} className={`resolved-alert-card border-${alertItem.severity}`}>
-                        <div className="res-meta-left">
-                          <span className={`severity-indicator ${alertItem.severity}`}>{alertItem.severity.toUpperCase()}</span>
-                          <span className="title"><strong>{alertItem.title}</strong></span>
+                    {resolvedAlerts.length === 0 ? (
+                      <div style={{ color: 'var(--text3)', fontSize: '13.5px', padding: '12px 0' }}>No historical alerts logged.</div>
+                    ) : (
+                      resolvedAlerts.map(alertItem => (
+                        <div key={alertItem.id} className={`resolved-alert-card border-${alertItem.severity}`}>
+                          <div className="res-meta-left">
+                            <span className={`severity-indicator ${alertItem.severity}`}>{alertItem.severity.toUpperCase()}</span>
+                            <span className="title"><strong>{alertItem.title}</strong></span>
+                          </div>
+                          <div className="res-meta-right">
+                            <span>Date: {alertItem.date}</span>
+                            <span>Outage: {alertItem.duration}</span>
+                            <span className="resolution">Resolved: <em>{alertItem.resolution}</em></span>
+                          </div>
                         </div>
-                        <div className="res-meta-right">
-                          <span>Date: {alertItem.date}</span>
-                          <span>Outage: {alertItem.duration}</span>
-                          <span className="resolution">Resolved: <em>{alertItem.resolution}</em></span>
-                        </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
               )}
@@ -3148,10 +4451,6 @@ export default function Dashboard() {
                     <div className="meta-row">
                       <span className="lbl">Email</span>
                       <span className="val">{adminEmail}</span>
-                    </div>
-                    <div className="meta-row">
-                      <span className="lbl">Phone</span>
-                      <span className="val">{adminPhone}</span>
                     </div>
                     <div className="meta-row">
                       <span className="lbl">Account Created</span>
@@ -3230,7 +4529,7 @@ export default function Dashboard() {
                       <div className="icon"><IconPlug size={24} /></div>
                       <div className="body">
                         <strong>System Health Audit</strong>
-                        <span>SMS Gateway warning status currently monitored</span>
+                        <span>Email Gateway warning status currently monitored</span>
                       </div>
                     </div>
                   </div>
@@ -3247,10 +4546,6 @@ export default function Dashboard() {
                         <label htmlFor="settings-email">Email Address</label>
                         <input id="settings-email" type="text" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
                       </div>
-                      <div className="field">
-                        <label htmlFor="settings-phone">Phone Number</label>
-                        <input id="settings-phone" type="text" value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} />
-                      </div>
                     </div>
                   </div>
 
@@ -3260,10 +4555,6 @@ export default function Dashboard() {
                       <label className="checkbox-label" htmlFor="settings-notif-email">
                         <input id="settings-notif-email" type="checkbox" checked={notifEmail} onChange={(e) => setNotifEmail(e.target.checked)} />
                         Send critical alerts via Email
-                      </label>
-                      <label className="checkbox-label" htmlFor="settings-notif-sms">
-                        <input id="settings-notif-sms" type="checkbox" checked={notifSms} onChange={(e) => setNotifSms(e.target.checked)} />
-                        Send backup logs to SMS relay
                       </label>
                       <label className="checkbox-label" htmlFor="settings-notif-push">
                         <input id="settings-notif-push" type="checkbox" checked={notifPush} onChange={(e) => setNotifPush(e.target.checked)} />

@@ -897,7 +897,7 @@
 [data-theme="light"] #usecases,
 [data-theme="light"] #cta {
   background:
-    linear-gradient(180deg, rgba(8,127,111,0.055), transparent 28%),
+    linear-gradient(180deg, rgba(29, 78, 216, 0.045), transparent 28%),
     var(--bg);
 }
 
