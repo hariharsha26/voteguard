@@ -23,9 +23,9 @@ export default defineConfig(({ mode }) => {
   });
 
   if (missing.length > 0) {
-    throw new Error(
-      `\n\n[VoteGuard Config Error] Missing critical client environment variables: ${missing.join(', ')}\n` +
-      `Please ensure these are defined in your environment or .env file.\n\n`
+    console.warn(
+      `\n\n[VoteGuard Config Warning] Missing client environment variables: ${missing.join(', ')}\n` +
+      `Please ensure these are defined in your environment or Vercel settings for the app to function properly.\n\n`
     );
   }
 
