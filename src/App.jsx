@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import ScrollToTop from './components/ScrollToTop'
+import { SpeedInsights } from "@vercel/speed-insights/react"
 import Landing from './pages/Landing'
 import AccessPortal from './pages/AccessPortal'
 import VoterAuth from './pages/VoterAuth'
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/voter" element={<VoterDashboard />} />
       </Routes>
+      <SpeedInsights />
     </>
   )
 }
