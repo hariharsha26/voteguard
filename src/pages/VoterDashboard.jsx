@@ -4,8 +4,53 @@ import VoterNavigation from '../components/VoterNavigation';
 import SpotlightCard from '../components/ReactBits/SpotlightCard';
 import CountUpNumber from '../components/ReactBits/CountUpNumber';
 import '../styles/VoterDashboard.css';
-import { IconShield, IconBulb, IconAlertTriangle, IconLock, IconBox, IconTrophy, IconX, IconInfoCircle } from '@tabler/icons-react';
+import { IconShield, IconBulb, IconAlertTriangle, IconLock, IconBox, IconTrophy, IconX, IconInfoCircle, IconRefresh } from '@tabler/icons-react';
 import { supabase } from '../lib/supabaseClient';
+
+const generateTimestamp = () => Date.now();
+
+// Base-36 / Alphanumeric helper conversions
+const base36ToInt = (str) => {
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let val = 0;
+  const upperStr = str.trim().toUpperCase();
+  for (let i = 0; i < upperStr.length; i++) {
+    const idx = chars.indexOf(upperStr[i]);
+    if (idx === -1) return -1;
+    val = val * 36 + idx;
+  }
+  return val;
+};
+
+const validateVoterEligibility = (roll, rules) => {
+  if (!rules || !Array.isArray(rules) || rules.length === 0) return false;
+  
+  for (const rule of rules) {
+    const { prefix, variableLength, mode, from, to } = rule;
+    const upperRoll = roll.trim().toUpperCase();
+    
+    if (upperRoll.startsWith(prefix.toUpperCase()) && upperRoll.length === prefix.length + Number(variableLength)) {
+      const varPart = upperRoll.substring(prefix.length);
+      
+      if (mode === 'numeric') {
+        if (/^[0-9]+$/.test(varPart)) {
+          const val = parseInt(varPart, 10);
+          const fromVal = parseInt(from, 10);
+          const toVal = parseInt(to, 10);
+          if (val >= fromVal && val <= toVal) return true;
+        }
+      } else {
+        const val = base36ToInt(varPart);
+        const fromVal = base36ToInt(from);
+        const toVal = base36ToInt(to);
+        if (val !== -1 && fromVal !== -1 && toVal !== -1) {
+          if (val >= fromVal && val <= toVal) return true;
+        }
+      }
+    }
+  }
+  return false;
+};
 
 export default function VoterDashboard() {
   const navigate = useNavigate();
@@ -39,18 +84,48 @@ export default function VoterDashboard() {
     institution: '',
     year: '',
     email: '',
+    phoneNumber: '',
     electionStatus: '',
     memberSince: '',
     accountStatus: '',
-    avatarUrl: ''
+    avatarUrl: '',
+    updatedAt: ''
   });
 
   // 2. Navigation Active Tab State
   const [activeTab, setActiveTab] = useState('Home'); // 'Home' | 'My Elections' | 'Results' | 'Activity' | 'Verification' | 'Help' | 'Profile'
   const [editingProfile, setEditingProfile] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editDept, setEditDept] = useState('');
+  const [editAvatarUrl, setEditAvatarUrl] = useState('');
+  const [secEvents, setSecEvents] = useState([]);
+  const [activeSessions, setActiveSessions] = useState([]);
+  const [changePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
 
-  // 3. Simulated Elections Database
+  // Profile Photo Upload & Crop States
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [imageSrcToCrop, setImageSrcToCrop] = useState('');
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
+  const [cropSize, setCropSize] = useState(200);
+  const [uploadProgress, setUploadProgress] = useState(null);
+  
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const imageRef = useRef(null);
+  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0, renderedWidth: 0, renderedHeight: 0 });
+
+  // 3. Elections Database (live synced)
   const [elections, setElections] = useState([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const voterRollRef = useRef('');
+  const realtimeChannelRef = useRef(null);
+  const pollingIntervalRef = useRef(null);
+  const isAuthenticatedRef = useRef(false);
 
   // 4. Selected Election for Details View
   const [selectedElection, setSelectedElection] = useState(null);
@@ -100,12 +175,9 @@ export default function VoterDashboard() {
   const [verificationError, setVerificationError] = useState(null);
   const [showCryptoDetails, setShowCryptoDetails] = useState(false);
 
-  // 7. Simulated Logs / Activity Database (Step 12 Setup)
-  const [logs, setLogs] = useState([]);
+  // Real Logs / Activity Database is loaded from audit_logs table into secEvents
 
-
-
-  const fetchVoterData = async (userRoll) => {
+  const fetchVoterData = useCallback(async (userRoll) => {
     try {
       // 0. Auto-finalize expired active elections first
       await supabase.rpc('check_and_finalize_expired_elections');
@@ -134,6 +206,13 @@ export default function VoterDashboard() {
 
       if (partError) throw partError;
 
+      const { data: dbEligibility, error: eligError } = await supabase
+        .from('election_eligibility')
+        .select('*')
+        .eq('roll_number', userRoll);
+
+      if (eligError) throw eligError;
+
       // Fetch election results & summaries
       const { data: dbResults } = await supabase
         .from('election_results')
@@ -160,7 +239,7 @@ export default function VoterDashboard() {
         name: c.candidate_name,
         dept: c.department || '',
         photo: c.candidate_name.split(' ').map(x=>x[0]).join(''),
-        manifesto: c.manifesto || '',
+        description: c.description || '',
         about: `Voter ID roll profile candidate in ${c.department}.`,
         votes: votesMap[c.id] || 0
       }));
@@ -177,6 +256,9 @@ export default function VoterDashboard() {
           const dbCand = dbCandidates.find(dbc => dbc.id === c.id);
           return dbCand && dbCand.election_id === el.id;
         });
+
+        const eligRecord = (dbEligibility || []).find(elig => elig.election_id === el.id);
+        const isExplicitEligible = eligRecord ? eligRecord.is_eligible : null;
 
         return {
           id: el.id,
@@ -195,8 +277,10 @@ export default function VoterDashboard() {
           verificationToken: verificationToken,
           resultsPublic: el.status === 'COMPLETED' || el.status === 'STOPPED',
           status: el.status,
-          type: el.election_type,
           accessCode: el.access_code || '',
+          type: el.access_code ? 'Private' : 'Public',
+          eligibilityRules: el.eligibility_rules || [],
+          isExplicitEligible: isExplicitEligible,
           draw: el.status === 'DEADLOCK',
           jointWinner: el.joint_winners,
           winners: el.winners,
@@ -208,8 +292,54 @@ export default function VoterDashboard() {
       });
 
       setElections(mappedElections);
+      console.log(`[VoterDashboard] Loaded ${mappedElections.length} election(s) for voter ${userRoll}`);
     } catch (err) {
       console.error('Failed to fetch voter dashboard data:', err);
+    }
+  }, []);
+
+  // Manual refresh handler (with loading state + toast)
+  const handleManualRefresh = useCallback(async () => {
+    const roll = voterRollRef.current;
+    if (!roll || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await fetchVoterData(roll);
+      triggerToast('Election data updated successfully');
+    } catch (err) {
+      console.error('Manual refresh failed:', err);
+      triggerToast('Unable to refresh election data');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [fetchVoterData, isRefreshing]);
+
+  const fetchSecurityMetadata = async (rollNumber, authUserId) => {
+    try {
+      // Fetch audit logs for this voter (actor matches rollNumber)
+      const { data: auditData } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('actor', rollNumber)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (auditData) {
+        setSecEvents(auditData);
+      }
+
+      // Fetch active verified sessions for this user
+      const { data: sessionData } = await supabase
+        .from('verified_sessions')
+        .select('*')
+        .eq('auth_user_id', authUserId)
+        .order('expires_at', { ascending: false });
+
+      if (sessionData) {
+        setActiveSessions(sessionData);
+      }
+    } catch (err) {
+      console.error('Failed to fetch security metadata:', err);
     }
   };
 
@@ -257,16 +387,25 @@ export default function VoterDashboard() {
             institution: 'Vidyavardhini Institute of Technology',
             year: 'Voter Account',
             email: profile.email,
+            phoneNumber: profile.phone_number || '',
             electionStatus: 'Active & Eligible',
             memberSince: new Date(profile.created_at).toLocaleDateString(),
             accountStatus: 'Active',
-            avatarUrl: '/aarav_mehta_avatar.png'
+            avatarUrl: profile.profile_photo_url || '/aarav_mehta_avatar.png',
+            updatedAt: profile.updated_at ? new Date(profile.updated_at).toLocaleString() : 'Never'
           });
-          setLogs([
-            { ts: new Date().toLocaleTimeString(), ev: 'OTP_VERIFIED', desc: 'Secure two-factor verification successful via email channel', status: 'ok', payload: { channel: 'email', verified: true } },
-            { ts: new Date().toLocaleTimeString(), ev: 'LOGGED_IN', desc: 'Secure voter session initialized', status: 'ok', payload: { auth_level: 'voter', check_integrity: 'PASS' } }
-          ]);
+          setEditName(profile.full_name || '');
+          setEditPhone(profile.phone_number || '');
+          setEditDept(profile.department || '');
+          setEditAvatarUrl(profile.profile_photo_url || '');
+
+          // Store roll number ref for async access by polling & realtime
+          voterRollRef.current = profile.roll_number;
+          isAuthenticatedRef.current = true;
+
+          // Real-time security events are fetched dynamically below
           await fetchVoterData(profile.roll_number);
+          await fetchSecurityMetadata(profile.roll_number, session.user.id);
         }
 
         setCheckingAuth(false);
@@ -277,7 +416,433 @@ export default function VoterDashboard() {
     };
 
     checkAuth();
-  }, [navigate]);
+  }, [navigate, fetchVoterData]);
+
+  // ── Supabase Realtime subscription ──
+  useEffect(() => {
+    // Subscribe to changes on elections, candidates, election_results
+    const channel = supabase
+      .channel('voter-election-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'elections' }, (payload) => {
+        console.log('[Realtime] elections change:', payload.eventType);
+        const roll = voterRollRef.current;
+        if (roll && isAuthenticatedRef.current) {
+          fetchVoterData(roll);
+          triggerToast('Election information has been updated');
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'candidates' }, (payload) => {
+        console.log('[Realtime] candidates change:', payload.eventType);
+        const roll = voterRollRef.current;
+        if (roll && isAuthenticatedRef.current) {
+          fetchVoterData(roll);
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'election_results' }, (payload) => {
+        console.log('[Realtime] election_results change:', payload.eventType);
+        const roll = voterRollRef.current;
+        if (roll && isAuthenticatedRef.current) {
+          fetchVoterData(roll);
+          triggerToast('Election results have been updated');
+        }
+      })
+      .subscribe((status) => {
+        console.log('[Realtime] Subscription status:', status);
+      });
+
+    realtimeChannelRef.current = channel;
+
+    return () => {
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+    };
+  }, [fetchVoterData]);
+
+  // ── Auto-polling fallback (30s) with Page Visibility awareness ──
+  useEffect(() => {
+    const startPolling = () => {
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = setInterval(() => {
+        const roll = voterRollRef.current;
+        if (roll && isAuthenticatedRef.current && !document.hidden) {
+          console.log('[Polling] Auto-refreshing election data...');
+          fetchVoterData(roll);
+        }
+      }, 30000);
+    };
+
+    const stopPolling = () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        // Immediate refresh when tab becomes visible again
+        const roll = voterRollRef.current;
+        if (roll && isAuthenticatedRef.current) {
+          fetchVoterData(roll);
+        }
+        startPolling();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    startPolling();
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopPolling();
+    };
+  }, [fetchVoterData]);
+
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate type: JPG, JPEG, PNG, WebP
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      triggerToast('Invalid file type. Acceptable formats: JPG, JPEG, PNG, WebP.');
+      return;
+    }
+
+    // Validate size: max 5 MB
+    if (file.size > 5 * 1024 * 1024) {
+      triggerToast('File is too large. Maximum size is 5 MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImageSrcToCrop(reader.result);
+      setShowCropModal(true);
+    };
+    reader.readAsDataURL(file);
+    
+    // Clear value to allow selecting same file again
+    e.target.value = '';
+  };
+
+  const clampZoomAndOffset = useCallback((zoomVal, sizeVal, offsetVal) => {
+    if (!imageDimensions.renderedWidth) return { zoom: zoomVal, offset: offsetVal };
+    const minZoom = Math.max(sizeVal / imageDimensions.renderedWidth, sizeVal / imageDimensions.renderedHeight);
+    const activeZoom = Math.max(zoomVal, minZoom);
+    const w = imageDimensions.renderedWidth * activeZoom;
+    const h = imageDimensions.renderedHeight * activeZoom;
+    const maxOffsetX = Math.max(0, w / 2 - sizeVal / 2);
+    const maxOffsetY = Math.max(0, h / 2 - sizeVal / 2);
+    return {
+      zoom: activeZoom,
+      offset: {
+        x: Math.max(-maxOffsetX, Math.min(maxOffsetX, offsetVal.x)),
+        y: Math.max(-maxOffsetY, Math.min(maxOffsetY, offsetVal.y))
+      }
+    };
+  }, [imageDimensions]);
+
+  const handleZoomChange = (newZoom) => {
+    const { zoom, offset } = clampZoomAndOffset(newZoom, cropSize, cropOffset);
+    setCropZoom(zoom);
+    setCropOffset(offset);
+  };
+
+  const handleCropSizeChange = (newSize) => {
+    setCropSize(newSize);
+    const { zoom, offset } = clampZoomAndOffset(cropZoom, newSize, cropOffset);
+    setCropZoom(zoom);
+    setCropOffset(offset);
+  };
+
+  const handleImageLoaded = (e) => {
+    const img = e.target;
+    const containerSize = 300; // Fit container size
+    const naturalWidth = img.naturalWidth;
+    const naturalHeight = img.naturalHeight;
+    
+    let renderedWidth, renderedHeight;
+    const ratio = naturalWidth / naturalHeight;
+    if (ratio > 1) {
+      renderedHeight = containerSize;
+      renderedWidth = containerSize * ratio;
+    } else {
+      renderedWidth = containerSize;
+      renderedHeight = containerSize / ratio;
+    }
+
+    setImageDimensions({
+      width: naturalWidth,
+      height: naturalHeight,
+      renderedWidth,
+      renderedHeight
+    });
+    
+    const initialSize = 200;
+    setCropSize(initialSize);
+    const initialMinZoom = Math.max(initialSize / renderedWidth, initialSize / renderedHeight);
+    setCropZoom(Math.max(1.0, initialMinZoom));
+    setCropOffset({ x: 0, y: 0 });
+  };
+
+  const handleDragStart = (e) => {
+    isDraggingRef.current = true;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    dragStartRef.current = {
+      x: clientX - cropOffset.x,
+      y: clientY - cropOffset.y
+    };
+  };
+
+  const handleDragMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const targetOffset = {
+      x: clientX - dragStartRef.current.x,
+      y: clientY - dragStartRef.current.y
+    };
+    const { offset } = clampZoomAndOffset(cropZoom, cropSize, targetOffset);
+    setCropOffset(offset);
+  };
+
+  const handleDragEnd = () => {
+    isDraggingRef.current = false;
+  };
+
+  const handleConfirmCrop = async () => {
+    if (!imageRef.current || !imageDimensions.renderedWidth) return;
+
+    const img = imageRef.current;
+    const containerSize = 300;
+    
+    const w = imageDimensions.renderedWidth * cropZoom;
+    const h = imageDimensions.renderedHeight * cropZoom;
+    
+    const centerX = containerSize / 2 + cropOffset.x;
+    const centerY = containerSize / 2 + cropOffset.y;
+    
+    const left = centerX - w / 2;
+    const top = centerY - h / 2;
+    
+    const cropLeft = (containerSize - cropSize) / 2;
+    const cropTop = (containerSize - cropSize) / 2;
+    
+    const rx = cropLeft - left;
+    const ry = cropTop - top;
+    
+    const S = w / imageDimensions.width;
+    
+    const sourceX = rx / S;
+    const sourceY = ry / S;
+    const sourceWidth = cropSize / S;
+    const sourceHeight = cropSize / S;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = 500;
+    canvas.height = 500;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    ctx.drawImage(img, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, 500, 500);
+    
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        triggerToast('Failed to generate cropped image.');
+        return;
+      }
+      
+      setShowCropModal(false);
+      await performUpload(blob);
+    }, 'image/webp', 0.85);
+  };
+
+  const performUpload = async (blob) => {
+    setUploadProgress(10);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        triggerToast('Session expired. Please log in.');
+        return;
+      }
+      
+      const authUserId = session.user.id;
+      const timestamp = generateTimestamp();
+      const filePath = `${authUserId}/${timestamp}.webp`;
+      
+      setUploadProgress(40);
+
+      const { error: uploadError } = await supabase.storage
+        .from('profile-pictures')
+        .upload(filePath, blob, {
+          contentType: 'image/webp',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+      
+      setUploadProgress(75);
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('profile-pictures')
+        .getPublicUrl(filePath);
+
+      const { data: rpcData, error: rpcError } = await supabase.rpc('update_voter_profile_photo', {
+        p_profile_photo_url: publicUrl
+      });
+
+      if (rpcError) throw rpcError;
+
+      // Clean up previous image
+      const oldUrl = rpcData?.old_photo_url;
+      if (oldUrl && oldUrl.includes('profile-pictures/')) {
+        try {
+          const pathParts = oldUrl.split('profile-pictures/');
+          if (pathParts.length > 1) {
+            const oldPath = pathParts[1];
+            await supabase.storage.from('profile-pictures').remove([oldPath]);
+          }
+        } catch (delErr) {
+          console.error('Failed to clean up old profile photo file:', delErr);
+        }
+      }
+
+      setVoter(prev => ({
+        ...prev,
+        avatarUrl: publicUrl,
+        updatedAt: new Date().toLocaleString()
+      }));
+      setEditAvatarUrl(publicUrl);
+      
+      triggerToast('Profile photo updated successfully!');
+      await fetchSecurityMetadata(voter.rollNumber, authUserId);
+    } catch (err) {
+      console.error('Failed to upload/update profile photo:', err);
+      triggerToast('Upload failed: ' + err.message);
+    } finally {
+      setUploadProgress(null);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    setIsSubmitting(true);
+    setUploadProgress(10);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      
+      const { data: rpcData, error: rpcError } = await supabase.rpc('remove_voter_profile_photo');
+      if (rpcError) throw rpcError;
+      
+      // Clean up previous image
+      const oldUrl = rpcData?.old_photo_url;
+      if (oldUrl && oldUrl.includes('profile-pictures/')) {
+        try {
+          const pathParts = oldUrl.split('profile-pictures/');
+          if (pathParts.length > 1) {
+            const oldPath = pathParts[1];
+            await supabase.storage.from('profile-pictures').remove([oldPath]);
+          }
+        } catch (delErr) {
+          console.error('Failed to delete profile photo from storage:', delErr);
+        }
+      }
+
+      setVoter(prev => ({
+        ...prev,
+        avatarUrl: '/aarav_mehta_avatar.png',
+        updatedAt: new Date().toLocaleString()
+      }));
+      setEditAvatarUrl('');
+      
+      triggerToast('Profile photo removed successfully.');
+      await fetchSecurityMetadata(voter.rollNumber, session.user.id);
+    } catch (err) {
+      console.error('Failed to remove profile photo:', err);
+      triggerToast('Removal failed: ' + err.message);
+    } finally {
+      setUploadProgress(null);
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase.rpc('update_voter_profile', {
+        p_full_name: editName,
+        p_phone_number: editPhone,
+        p_department: editDept,
+        p_profile_photo_url: editAvatarUrl
+      });
+
+      if (error) throw error;
+
+      // Update voter state
+      setVoter(prev => ({
+        ...prev,
+        name: editName,
+        phoneNumber: editPhone,
+        department: editDept,
+        avatarUrl: editAvatarUrl || '/aarav_mehta_avatar.png',
+        updatedAt: new Date().toLocaleString()
+      }));
+
+      setEditingProfile(false);
+      triggerToast('Profile updated successfully!');
+      
+      // Refresh security metadata
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        await fetchSecurityMetadata(voter.rollNumber, session.user.id);
+      }
+    } catch (err) {
+      console.error('Failed to update profile:', err);
+      triggerToast('Error updating profile: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      triggerToast('Passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      triggerToast('Password must be at least 8 characters long.');
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) throw error;
+
+      triggerToast('Password changed successfully.');
+      setChangePasswordModalOpen(false);
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      console.error('Failed to change password:', err);
+      triggerToast('Error: ' + err.message);
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
 
   // Scroll to top of window on tab or wizard step change
   useEffect(() => {
@@ -318,18 +883,13 @@ export default function VoterDashboard() {
     }
   };
 
-  const addAuditLog = (ev, desc, payload = {}) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [
-      {
-        ts: timestamp,
-        ev: ev,
-        desc: desc,
-        status: 'ok',
-        payload: payload
-      },
-      ...prev
-    ]);
+  const addAuditLog = async (ev, desc) => {
+    console.log(`[Audit Event] ${ev}: ${desc}`);
+    // Re-fetch the database-driven logs to synchronize UI
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session && voter.rollNumber) {
+      await fetchSecurityMetadata(voter.rollNumber, session.user.id);
+    }
   };
 
   // Toast notifier utility
@@ -353,12 +913,21 @@ export default function VoterDashboard() {
   // Logout trigger
   const handleLogout = async () => {
     if (window.confirm('Are you sure you want to end your secure voter session? All current context will be wiped.')) {
+      // Stop polling and Realtime on logout
+      isAuthenticatedRef.current = false;
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
       try {
         await supabase.rpc('handle_logout');
         await supabase.auth.signOut();
       } catch (err) {
         console.error('Logout error:', err);
-        // Fallback signout
         await supabase.auth.signOut();
       }
       navigate('/portal');
@@ -399,7 +968,7 @@ export default function VoterDashboard() {
         step: wizardStep,
         selectedCandidate: selectedCandidate,
         generatedToken: wizardGeneratedToken,
-        savedAt: Date.now() - 120000 // Mock 2 minutes ago initially for UI demo, then standard Date.now()
+        savedAt: Date.now()
       });
       addAuditLog('SESSION_SAVED', `Secure voting session saved at step: ${wizardStep}`);
       triggerToast('Election session saved. You can resume later.');
@@ -416,8 +985,7 @@ export default function VoterDashboard() {
   const [ticketSubject, setTicketSubject] = useState('');
   const [ticketMessage, setTicketMessage] = useState('');
 
-  // 10. Selected log for cryptographic details drawer
-  const [expandedLog, setExpandedLog] = useState(null);
+
 
   // Ticking effect for Countdown Timer
   useEffect(() => {
@@ -661,12 +1229,12 @@ export default function VoterDashboard() {
 
   // Navigating to participate from home screen status card
   const handleParticipate = () => {
-    const crElection = elections.find(e => e.id === 'ELC-2026-CR');
-    if (!crElection) {
-      triggerToast('CR Election 2026 is not available at the moment.');
+    const activeEl = elections.find(e => e.status === 'ACTIVE') || elections.find(e => e.status === 'PAUSED');
+    if (!activeEl) {
+      triggerToast('No active election is available at the moment.');
       return;
     }
-    launchVotingWizard(crElection);
+    launchVotingWizard(activeEl);
     setActiveTab('My Elections');
   };
 
@@ -719,6 +1287,7 @@ cryptographically sealed on the ledger.
   const getFriendlyEventName = (ev) => {
     switch (ev) {
       case 'OTP_VERIFIED': return 'OTP Verified';
+      case 'LOGIN_SUCCESS':
       case 'LOGGED_IN': return 'Login Verified';
       case 'SESSION_SAVED': return 'Session Saved';
       case 'SESSION_RESUMED': return 'Session Resumed';
@@ -813,6 +1382,17 @@ cryptographically sealed on the ledger.
       triggerToast('You have already voted in this election.');
       return;
     }
+
+    // Verify eligibility before allowing join
+    const isEligible = election.isExplicitEligible !== null
+      ? election.isExplicitEligible
+      : validateVoterEligibility(voter.rollNumber, election.eligibilityRules);
+
+    if (!isEligible) {
+      alert("You are not eligible for this election based on the configured voter eligibility criteria.");
+      return;
+    }
+
     setActiveWizardElection(election);
     setSelectedCandidate(null);
     setWizardTokenInput('');
@@ -1075,20 +1655,12 @@ cryptographically sealed on the ledger.
 
 
 
-  const crElection = elections.find(e => e.id === 'ELC-2026-CR') || {
-    id: 'ELC-2026-CR',
-    name: 'CR Election 2026',
-    description: 'Class Representative Election for Computer Science students.',
-    voted: false,
-    status: 'Inactive',
-    candidates: [],
-    verificationToken: null
-  };
+  const activeElection = elections.find(e => e.status === 'ACTIVE') || elections.find(e => e.status === 'PAUSED') || null;
   const eligibleCount = elections.filter(e => e.status === 'ACTIVE' || e.status === 'PAUSED').length;
   const activeCount = elections.filter(e => e.status === 'ACTIVE').length;
   const votedCount = elections.filter(e => e.voted).length;
   const pendingCount = elections.filter(e => !e.voted && e.status === 'ACTIVE').length;
-  const latestActivity = logs[0] ? logs[0].desc : 'No recent activity';
+  const latestActivity = secEvents[0] ? secEvents[0].details : 'No recent activity';
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
 
   if (checkingAuth) {
@@ -1201,53 +1773,70 @@ cryptographically sealed on the ledger.
             <div className="command-layout-grid">
               {/* Left Column: Active Election Widget */}
               <div className="command-grid-main">
-                <SpotlightCard className="election-widget-card-spotlight-wrapper" spotlightColor="rgba(74, 157, 143, 0.15)">
-                  <div className="election-widget-card-redesign">
-                    <div className="widget-header-meta">
-                      <span className="live-pill"><span className="live-dot animate-pulse" /> LIVE ELECTION</span>
-                      <span className="election-id-tag">ID: ELC-2026-CR</span>
-                    </div>
+                {activeElection ? (
+                  <SpotlightCard className="election-widget-card-spotlight-wrapper" spotlightColor="rgba(74, 157, 143, 0.15)">
+                    <div className="election-widget-card-redesign">
+                      <div className="widget-header-meta">
+                        <span className="live-pill">
+                          <span className={`live-dot ${activeElection.status === 'ACTIVE' ? 'animate-pulse' : ''}`} style={{ background: activeElection.status === 'ACTIVE' ? 'var(--teal)' : 'var(--gold)' }} />
+                          {activeElection.status === 'ACTIVE' ? 'LIVE ELECTION' : 'PAUSED POLL'}
+                        </span>
+                        <span className="election-id-tag">ID: {activeElection.id.substring(0, 8).toUpperCase()}</span>
+                      </div>
 
-                    <h2 className="widget-election-title-redesign">CR Election 2026</h2>
-                    <p className="widget-election-desc">Class Representative Election for Computer Science students.</p>
-                    
-                    {/* Countdown Timer */}
-                    <div className="widget-countdown-box-redesign">
-                      <span className="countdown-label">POLLING WINDOW ENDS IN</span>
-                      <span className="countdown-timer-value">{formatTime(timeLeft)}</span>
-                    </div>
+                      <h2 className="widget-election-title-redesign">{activeElection.name}</h2>
+                      <p className="widget-election-desc">{activeElection.description}</p>
+                      
+                      {/* Countdown Timer */}
+                      <div className="widget-countdown-box-redesign">
+                        <span className="countdown-label">POLLING WINDOW ENDS IN</span>
+                        <span className="countdown-timer-value">{formatTime(timeLeft)}</span>
+                      </div>
 
-                    {/* Vote Status Indicator & CTA */}
-                    <div className="election-voted-status-section">
-                      {crElection.voted ? (
-                        <div className="status-locked-completed">
-                          <span className="lock-check-icon">✓</span>
-                          <div className="status-msg-block">
-                            <strong>Vote Successfully Submitted</strong>
-                            <p>This election has been completed.</p>
+                      {/* Vote Status Indicator & CTA */}
+                      <div className="election-voted-status-section">
+                        {activeElection.voted ? (
+                          <div className="status-locked-completed">
+                            <span className="lock-check-icon">✓</span>
+                            <div className="status-msg-block">
+                              <strong>Vote Successfully Submitted</strong>
+                              <p>This election has been completed.</p>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="status-pending-vote">
-                          <span className="pending-dot animate-pulse" />
-                          <span>Ballot Submission Pending</span>
-                        </div>
-                      )}
-                    </div>
+                        ) : (
+                          <div className="status-pending-vote">
+                            <span className="pending-dot animate-pulse" />
+                            <span>Ballot Submission Pending</span>
+                          </div>
+                        )}
+                      </div>
 
-                    <div className="widget-action-footer">
-                      {crElection.voted ? (
-                        <button className="btn-widget-action view-verif" onClick={() => setActiveTab('Verification')}>
-                          View Verification Status
-                        </button>
-                      ) : (
-                        <button className="btn-widget-action participate-cta" onClick={handleParticipate}>
-                          Participate Now →
-                        </button>
-                      )}
+                      <div className="widget-action-footer">
+                        {activeElection.voted ? (
+                          <button className="btn-widget-action view-verif" onClick={() => setActiveTab('Verification')}>
+                            View Verification Status
+                          </button>
+                        ) : (
+                          <button className="btn-widget-action participate-cta" onClick={handleParticipate} disabled={activeElection.status === 'PAUSED'}>
+                            {activeElection.status === 'PAUSED' ? 'Polling Paused' : 'Participate Now →'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </SpotlightCard>
+                  </SpotlightCard>
+                ) : (
+                  <SpotlightCard className="election-widget-card-spotlight-wrapper" spotlightColor="rgba(255, 255, 255, 0.05)">
+                    <div className="election-widget-card-redesign" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '48px 24px', minHeight: '260px', boxSizing: 'border-box' }}>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '50%', marginBottom: '16px', border: '1px dashed var(--border)' }}>
+                        <IconShield size={32} style={{ color: 'var(--text3)' }} />
+                      </div>
+                      <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text)', marginBottom: '8px' }}>No Active Elections</h3>
+                      <p style={{ fontSize: '13px', color: 'var(--text3)', maxWidth: '280px', margin: 0, lineHeight: '1.5' }}>
+                        There are currently no active polling windows. You will be notified when the election administrator launches a new session.
+                      </p>
+                    </div>
+                  </SpotlightCard>
+                )}
 
                 {/* Onboarding Guide: How Voting Works */}
                 <div className="onboarding-guide-card">
@@ -1292,7 +1881,7 @@ cryptographically sealed on the ledger.
                     </div>
                   </div>
                   
-                  {!crElection.voted && (
+                  {activeElection && !activeElection.voted && (
                     <button className="btn-start-voting-onboarding" onClick={handleParticipate}>
                       Start Voting Now
                     </button>
@@ -1306,12 +1895,12 @@ cryptographically sealed on the ledger.
                 <SpotlightCard className="panel-spotlight-wrapper" spotlightColor="rgba(255, 255, 255, 0.08)">
                   <div className="sidebar-quick-card">
                     <h3>Ballot Verification</h3>
-                    {crElection.voted ? (
+                    {activeElection && activeElection.voted ? (
                       <div className="sidebar-verification-voted">
                         <span className="verif-check-green">✓</span>
                         <div className="verif-meta">
                           <strong>Vote Submitted Successfully</strong>
-                          <span className="verif-token-code">Token: <code>{crElection.verificationToken}</code></span>
+                          <span className="verif-token-code">Token: <code>{activeElection.verificationToken}</code></span>
                         </div>
                         <button className="btn-sidebar-audit-link" onClick={() => setActiveTab('Verification')}>Verify Receipt →</button>
                       </div>
@@ -1336,13 +1925,15 @@ cryptographically sealed on the ledger.
                     </div>
                     
                     <div className="timeline-preview-list">
-                      {logs.slice(0, 3).map((log, index) => (
+                      {secEvents.slice(0, 3).map((log, index) => (
                         <div key={index} className="timeline-preview-item">
                           <span className="timeline-preview-dot" />
                           <div className="timeline-preview-content">
-                            <span className="timeline-preview-time">{log.ts}</span>
+                            <span className="timeline-preview-time">
+                              {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
                             <span className="timeline-preview-desc">
-                              {getFriendlyEventName(log.ev)}
+                              {getFriendlyEventName(log.event_type)}
                             </span>
                           </div>
                         </div>
@@ -1678,8 +2269,8 @@ cryptographically sealed on the ledger.
                               </div>
                             </div>
                             <div>
-                              <strong style={{ fontSize: '11px', color: 'var(--text2)', display: 'block', marginBottom: '2px' }}>Manifesto Summary</strong>
-                              <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text2)', lineHeight: '1.4' }}>"{cand.manifesto}"</p>
+                              <strong style={{ fontSize: '11px', color: 'var(--text2)', display: 'block', marginBottom: '2px' }}>Description</strong>
+                              <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text2)', lineHeight: '1.4' }}>"{cand.description}"</p>
                             </div>
                             <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
                               <strong style={{ fontSize: '11px', color: 'var(--text2)', display: 'block', marginBottom: '2px' }}>About Candidate</strong>
@@ -2075,7 +2666,7 @@ cryptographically sealed on the ledger.
                                 name: 'Vikram Aditya',
                                 dept: 'Electrical Engineering',
                                 photo: 'VA',
-                                manifesto: 'Advocating for better research lab infrastructure, library hours extension, and interdisciplinary project funding.',
+                               description: 'Advocating for better research lab infrastructure, library hours extension, and interdisciplinary project funding.',
                                 about: 'IEEE Student Branch Chair, academic topper, and roboticist.'
                               },
                               {
@@ -2083,7 +2674,7 @@ cryptographically sealed on the ledger.
                                 name: 'Ananya Roy',
                                 dept: 'Electronics & Communication',
                                 photo: 'AR',
-                                manifesto: 'Promoting student mental wellness programs, sports facility upgrades, and annual cultural fest collaborations.',
+                                description: 'Promoting student mental wellness programs, sports facility upgrades, and annual cultural fest collaborations.',
                                 about: 'Vice-President of the Cultural Society, badminton captain, and student counsellor.'
                               }
                             ]
@@ -2112,8 +2703,8 @@ cryptographically sealed on the ledger.
                             </div>
 
                             <div className="cand-card-manifesto">
-                              <strong>Manifesto Summary:</strong>
-                              <p>"{cand.manifesto}"</p>
+                              <strong>Description:</strong>
+                              <p>"{cand.description}"</p>
                             </div>
 
                             <div className="cand-card-about">
@@ -2189,10 +2780,10 @@ cryptographically sealed on the ledger.
                             </thead>
                             <tbody>
                               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                                <td style={{ padding: '12px', fontWeight: '600', color: 'var(--text)' }}>Manifesto</td>
+                                <td style={{ padding: '12px', fontWeight: '600', color: 'var(--text)' }}>Description</td>
                                 {(activeWizardElection.candidates || []).map((cand) => (
                                   <td key={cand.id} style={{ padding: '12px', color: 'var(--text2)', lineHeight: '1.4' }}>
-                                    "{cand.manifesto}"
+                                    "{cand.description}"
                                   </td>
                                 ))}
                               </tr>
@@ -2521,9 +3112,46 @@ cryptographically sealed on the ledger.
               ) : (
                 // Listing View (Step 1)
                 <>
-                  <div className="page-intro-header">
-                    <h1>My Elections Dashboard</h1>
-                    <p>Review active institutional polls, check election lifecycles, and cast your secure cryptographically-audited ballot.</p>
+                  <div className="page-intro-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
+                    <div>
+                      <h1>My Elections Dashboard</h1>
+                      <p>Review active institutional polls, check election lifecycles, and cast your secure cryptographically-audited ballot.</p>
+                    </div>
+                    <button
+                      className="btn-refresh-elections"
+                      onClick={handleManualRefresh}
+                      disabled={isRefreshing}
+                      title="Refresh election data"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '10px 20px',
+                        background: 'var(--glass)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '10px',
+                        color: 'var(--text)',
+                        cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        fontFamily: 'inherit',
+                        transition: 'all 0.2s ease',
+                        opacity: isRefreshing ? 0.6 : 1,
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                        marginTop: '4px'
+                      }}
+                      onMouseEnter={(e) => { if (!isRefreshing) { e.currentTarget.style.background = 'var(--teal-bg)'; e.currentTarget.style.borderColor = 'var(--teal)'; e.currentTarget.style.color = 'var(--teal)'; } }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--glass)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text)'; }}
+                    >
+                      <IconRefresh
+                        size={16}
+                        style={{
+                          animation: isRefreshing ? 'spin 1s linear infinite' : 'none'
+                        }}
+                      />
+                      {isRefreshing ? 'Refreshing…' : 'Refresh'}
+                    </button>
                   </div>
 
                   {/* Dashboard metrics summary (Step 1) */}
@@ -2969,7 +3597,7 @@ cryptographically sealed on the ledger.
               <p>Review the complete cryptographically signed audit trace of your voter session. All activities are recorded with timestamps, event codes, and transaction hashes.</p>
             </div>
 
-            {logs.length === 0 ? (
+            {secEvents.length === 0 ? (
               <div className="empty-state-container">
                 <div className="empty-state-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -2979,37 +3607,25 @@ cryptographically sealed on the ledger.
               </div>
             ) : (
               <div className="activity-timeline-wrapper">
-              <div className="timeline-trail-line" />
-              
-              <div className="timeline-items-stack">
-                {logs.map((log, idx) => (
-                  <div key={idx} className="timeline-item-card">
-                    <div className="timeline-bullet-dot" />
-                    
-                    <div className="timeline-card-header">
-                      <div className="header-meta">
-                        <span className={`event-badge ${log.status}`}>{getFriendlyEventName(log.ev)}</span>
-                        <span className="event-timestamp">{log.ts}</span>
+                <div className="timeline-trail-line" />
+                
+                <div className="timeline-items-stack">
+                  {secEvents.map((log, idx) => (
+                    <div key={idx} className="timeline-item-card">
+                      <div className="timeline-bullet-dot" />
+                      
+                      <div className="timeline-card-header">
+                        <div className="header-meta">
+                          <span className={`event-badge ok`}>{getFriendlyEventName(log.event_type)}</span>
+                          <span className="event-timestamp">{new Date(log.created_at).toLocaleString()}</span>
+                        </div>
                       </div>
-                      <button className="btn-toggle-payload" onClick={() => setExpandedLog(expandedLog === idx ? null : idx)}>
-                        {expandedLog === idx ? 'Hide Payload' : 'Show Payload'}
-                      </button>
+
+                      <p className="timeline-card-desc">{log.details}</p>
                     </div>
-
-                    <p className="timeline-card-desc">{log.desc}</p>
-
-                    {expandedLog === idx && (
-                      <div className="timeline-payload-viewer fade-in">
-                        <span className="payload-label">Ledger Payload JSON (Signed)</span>
-                        <pre className="payload-code">
-                          {JSON.stringify(log.payload, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
             )}
           </div>
         )}
@@ -3272,6 +3888,9 @@ cryptographically sealed on the ledger.
         {/* ==========================================
             TAB: PROFILE PAGE
            ========================================== */}
+        {/* ==========================================
+            TAB: PROFILE PAGE
+           ========================================== */}
         {activeTab === 'Profile' && (
           <div className="tab-pane-view profile-pane-view fade-in">
             {/* Header Title Block */}
@@ -3294,17 +3913,84 @@ cryptographically sealed on the ledger.
             {/* Profile Card Banner */}
             <div className="profile-banner-card">
               <div className="profile-avatar-group">
-                <div className="profile-avatar-wrapper">
-                  <img src={voter.avatarUrl || "/aarav_mehta_avatar.png"} alt={voter.name} className="profile-large-avatar" />
-                  <div className="avatar-verified-check">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </div>
+                <div className="profile-avatar-wrapper" style={{ position: 'relative' }}>
+                  <img src={editingProfile ? (editAvatarUrl || "/aarav_mehta_avatar.png") : (voter.avatarUrl || "/aarav_mehta_avatar.png")} alt={voter.name} className="profile-large-avatar" />
+                  {editingProfile ? (
+                    <label htmlFor="avatar-file-input" className="avatar-upload-overlay" style={{
+                      position: 'absolute',
+                      bottom: 0, right: 0,
+                      background: 'var(--teal)',
+                      borderRadius: '50%',
+                      padding: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      border: '2px solid var(--card-bg, #1e293b)'
+                    }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" style={{ width: '16px', height: '16px' }}>
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                        <circle cx="12" cy="13" r="4" />
+                      </svg>
+                      <input
+                        id="avatar-file-input"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+                  ) : (
+                    <div className="avatar-verified-check">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                  )}
                 </div>
                 <div className="profile-main-meta">
                   <h2>{voter.name}</h2>
                   <div className="voter-id-display">Voter ID: <span>{voter.userId}</span></div>
+                  
+                  {/* Photo Actions & Progress Bar */}
+                  <div className="profile-photo-actions-wrap">
+                    <div className="profile-photo-buttons-row">
+                      <input
+                        id="profile-pic-file-input"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        style={{ display: 'none' }}
+                      />
+                      
+                      {voter.avatarUrl && voter.avatarUrl !== '/aarav_mehta_avatar.png' ? (
+                        <>
+                          <label htmlFor="profile-pic-file-input" className="profile-btn-secondary" style={{ margin: 0 }}>
+                            Change Photo
+                          </label>
+                          <button type="button" className="profile-btn-danger" onClick={handleRemovePhoto}>
+                            Remove Photo
+                          </button>
+                        </>
+                      ) : (
+                        <label htmlFor="profile-pic-file-input" className="profile-btn-main" style={{ margin: 0 }}>
+                          Upload Photo
+                        </label>
+                      )}
+                    </div>
+                    
+                    {uploadProgress !== null && (
+                      <div style={{ width: '100%', maxWidth: '220px', marginTop: '4px' }}>
+                        <div style={{ fontSize: '10px', color: 'var(--text3)', display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontFamily: 'var(--font-mono)' }}>
+                          <span>Uploading...</span>
+                          <span>{uploadProgress}%</span>
+                        </div>
+                        <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden' }}>
+                          <div style={{ width: `${uploadProgress}%`, height: '100%', background: 'var(--teal)', transition: 'width 0.2s ease-in-out' }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   
                   <div className="voter-quick-details-list">
                     <div className="quick-detail-item">
@@ -3342,7 +4028,7 @@ cryptographically sealed on the ledger.
                     {voter.accountStatus}
                   </span>
                 </div>
-                <div className="status-summary-row">
+                <div className="status-summary-row border-bottom">
                   <span className="summary-label">Member Since</span>
                   <span className="summary-value date">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="calendar-icon">
@@ -3352,6 +4038,12 @@ cryptographically sealed on the ledger.
                       <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
                     {voter.memberSince}
+                  </span>
+                </div>
+                <div className="status-summary-row">
+                  <span className="summary-label">Last Updated</span>
+                  <span className="summary-value date" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                    {voter.updatedAt}
                   </span>
                 </div>
               </div>
@@ -3412,7 +4104,7 @@ cryptographically sealed on the ledger.
                 <div className="stat-content-wrap">
                   <span className="stat-caption">Last Activity</span>
                   <span className="stat-main-string">Today</span>
-                  <span className="stat-caption">10:24 AM</span>
+                  <span className="stat-caption">Active Session</span>
                 </div>
               </div>
             </div>
@@ -3423,65 +4115,86 @@ cryptographically sealed on the ledger.
               <div className="profile-info-block-card">
                 <div className="info-block-header">
                   <h3>Personal Information</h3>
-                  <button className="btn-edit-profile-info" onClick={() => setEditingProfile(!editingProfile)}>
-                    {editingProfile ? 'Cancel' : 'Edit'}
+                  <button className="btn-edit-profile-info" onClick={() => {
+                    if (editingProfile) {
+                      setEditName(voter.name);
+                      setEditPhone(voter.phoneNumber);
+                      setEditDept(voter.department);
+                      setEditAvatarUrl(voter.avatarUrl);
+                      setEditingProfile(false);
+                    } else {
+                      setEditingProfile(true);
+                    }
+                  }}>
+                    {editingProfile ? 'Cancel' : 'Edit Profile'}
                   </button>
                 </div>
 
                 {editingProfile ? (
-                  <form className="profile-edit-form" onSubmit={(e) => {
-                    e.preventDefault();
-                    setEditingProfile(false);
-                    triggerToast('Profile updated successfully!');
-                  }}>
+                  <form className="profile-edit-form" onSubmit={handleSaveProfile}>
                     <div className="edit-form-grid">
                       <div className="form-field-item">
                         <label>Full Name</label>
                         <input
                           type="text"
-                          value={voter.name}
-                          onChange={(e) => setVoter({ ...voter, name: e.target.value })}
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
                           required
                         />
                       </div>
                       <div className="form-field-item">
-                        <label>Roll Number</label>
+                        <label>Phone Number</label>
                         <input
                           type="text"
-                          value={voter.rollNumber}
-                          onChange={(e) => setVoter({ ...voter, rollNumber: e.target.value })}
-                          required
+                          value={editPhone}
+                          onChange={(e) => setEditPhone(e.target.value)}
+                          placeholder="e.g. +1 555-0199"
                         />
                       </div>
                       <div className="form-field-item">
                         <label>Department</label>
                         <input
                           type="text"
-                          value={voter.department}
-                          onChange={(e) => setVoter({ ...voter, department: e.target.value })}
+                          value={editDept}
+                          onChange={(e) => setEditDept(e.target.value)}
                           required
                         />
                       </div>
                       <div className="form-field-item">
-                        <label>Year</label>
+                        <label>Roll Number (Read-Only)</label>
                         <input
                           type="text"
-                          value={voter.year}
-                          onChange={(e) => setVoter({ ...voter, year: e.target.value })}
-                          required
+                          value={voter.rollNumber}
+                          disabled
+                          className="preview-readonly-input"
+                          style={{ opacity: 0.6, cursor: 'not-allowed' }}
                         />
                       </div>
                       <div className="form-field-item">
-                        <label>Email</label>
+                        <label>Email Address (Read-Only)</label>
                         <input
-                          type="email"
+                          type="text"
                           value={voter.email}
-                          onChange={(e) => setVoter({ ...voter, email: e.target.value })}
-                          required
+                          disabled
+                          className="preview-readonly-input"
+                          style={{ opacity: 0.6, cursor: 'not-allowed' }}
                         />
                       </div>
                     </div>
-                    <button type="submit" className="btn-save-profile-edit">Save Changes</button>
+                    <div style={{ marginTop: '20px', display: 'flex', gap: '12px' }}>
+                      <button type="submit" disabled={isSubmitting} className="profile-btn-main">
+                        {isSubmitting ? 'Saving...' : 'Save Changes'}
+                      </button>
+                      <button type="button" className="profile-btn-ghost" onClick={() => {
+                        setEditName(voter.name);
+                        setEditPhone(voter.phoneNumber);
+                        setEditDept(voter.department);
+                        setEditAvatarUrl(voter.avatarUrl);
+                        setEditingProfile(false);
+                      }}>
+                        Cancel
+                      </button>
+                    </div>
                   </form>
                 ) : (
                   <div className="info-display-grid">
@@ -3490,19 +4203,19 @@ cryptographically sealed on the ledger.
                       <span className="info-field-val">{voter.name}</span>
                     </div>
                     <div className="info-display-item">
-                      <span className="info-field-lbl">Roll Number</span>
-                      <span className="info-field-val">{voter.rollNumber}</span>
+                      <span className="info-field-lbl">Phone Number</span>
+                      <span className="info-field-val">{voter.phoneNumber || 'Not Provided'}</span>
                     </div>
                     <div className="info-display-item">
                       <span className="info-field-lbl">Department</span>
                       <span className="info-field-val">{voter.department}</span>
                     </div>
                     <div className="info-display-item">
-                      <span className="info-field-lbl">Year</span>
-                      <span className="info-field-val">{voter.year}</span>
+                      <span className="info-field-lbl">Roll Number</span>
+                      <span className="info-field-val">{voter.rollNumber}</span>
                     </div>
                     <div className="info-display-item">
-                      <span className="info-field-lbl">Email</span>
+                      <span className="info-field-lbl">Email Address</span>
                       <span className="info-field-val">{voter.email}</span>
                     </div>
                   </div>
@@ -3515,96 +4228,418 @@ cryptographically sealed on the ledger.
                   <h3>Security &amp; Verification</h3>
                 </div>
                 
-                <div className="security-settings-list">
-                  <div className="security-setting-item">
-                    <span className="setting-label-text">Email Verified</span>
+                <div className="security-settings-list" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div className="security-setting-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="setting-label-text">Email Verification Status</span>
                     <span className="setting-status-icon green-checkmark">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="verified-check-svg">
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
+                      Verified
                     </span>
                   </div>
 
-
-
-                  <div className="security-setting-item">
+                  <div className="security-setting-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="setting-label-text">Two-Factor Authentication</span>
                     <span className="setting-status-value status-enabled">Enabled</span>
                   </div>
 
-                  <div className="security-setting-item">
-                    <span className="setting-label-text">Last Password Change</span>
-                    <span className="setting-status-value-date">12 May 2025</span>
-                  </div>
-
-                  <div className="security-setting-item">
-                    <span className="setting-label-text">Account Security</span>
-                    <span className="security-strength-pill strong">Strong</span>
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                    <button className="btn-main" onClick={() => navigate('/profile/change-email')}>
+                      Change Email
+                    </button>
+                    <button className="btn-secondary" onClick={() => setChangePasswordModalOpen(true)}>
+                      Change Password
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Bottom Card: Recent Activity */}
-            <div className="profile-recent-activity-panel">
-              <div className="activity-panel-header">
-                <h3>Recent Activity</h3>
-              </div>
-              
-              <div className="profile-activity-list-items">
-                {/* Item 1 */}
-                <div className="profile-activity-row">
-                  <div className="activity-icon-badge green-bg">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="activity-icon-svg">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </div>
-                  <div className="activity-row-content">
-                    <span className="activity-row-title">Voted in CR Election 2026</span>
-                    <span className="activity-row-desc">Vote submitted successfully</span>
-                  </div>
-                  <span className="activity-row-time">Today, 10:24 AM</span>
+            {/* Middle Grid: Active Sessions & Security Events */}
+            <div className="profile-split-details-grid" style={{ marginTop: '24px' }}>
+              {/* Active Sessions */}
+              <div className="profile-info-block-card">
+                <div className="info-block-header">
+                  <h3>Active Sessions</h3>
                 </div>
-
-                {/* Item 2 */}
-                <div className="profile-activity-row">
-                  <div className="activity-icon-badge blue-bg">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="activity-icon-svg">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                      <line x1="12" y1="8" x2="12" y2="16" />
-                      <line x1="8" y1="12" x2="16" y2="12" />
-                    </svg>
-                  </div>
-                  <div className="activity-row-content">
-                    <span className="activity-row-title">Logged in to VoteGuard</span>
-                    <span className="activity-row-desc">IP: 103.21.45.67 • Chrome on Windows</span>
-                  </div>
-                  <span className="activity-row-time">Today, 10:15 AM</span>
-                </div>
-
-                {/* Item 3 */}
-                <div className="profile-activity-row">
-                  <div className="activity-icon-badge grey-bg">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="activity-icon-svg">
-                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                      <polyline points="22,6 12,13 2,6" />
-                    </svg>
-                  </div>
-                  <div className="activity-row-content">
-                    <span className="activity-row-title">Email verified</span>
-                    <span className="activity-row-desc">Your email address was successfully verified</span>
-                  </div>
-                  <span className="activity-row-time">14 Aug 2024</span>
+                <div className="security-settings-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '300px', overflowY: 'auto' }}>
+                  {activeSessions.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text3)' }}>No active sessions recorded.</div>
+                  ) : (
+                    activeSessions.map((session, idx) => (
+                      <div key={session.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text)' }}>
+                            Session: {session.session_id ? session.session_id.substring(0, 8) + '...' : 'Unknown'}
+                            {session.verified && <span style={{ marginLeft: '8px', fontSize: '10px', background: 'rgba(74,157,143,0.1)', color: 'var(--teal)', padding: '2px 6px', borderRadius: '4px' }}>Verified</span>}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)' }}>
+                            Expires: {new Date(session.expires_at).toLocaleString()}
+                          </div>
+                        </div>
+                        {session.verified && (
+                          <span style={{ fontSize: '12px', color: 'var(--teal)', fontWeight: '600' }}>Active Now</span>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 
-              <div className="profile-activity-footer">
-                <button className="btn-view-all-activity-link" onClick={() => setActiveTab('Activity')}>
-                  View All Activity 
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="arrow-right-icon">
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                    <polyline points="12 5 19 12 12 19" />
-                  </svg>
+              {/* Security Events */}
+              <div className="profile-info-block-card">
+                <div className="info-block-header">
+                  <h3>Security &amp; Audit Logs</h3>
+                </div>
+                <div className="security-settings-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '300px', overflowY: 'auto' }}>
+                  {secEvents.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text3)' }}>No recent security activities logged.</div>
+                  ) : (
+                    secEvents.map((evt, idx) => (
+                      <div key={evt.id || idx} style={{ display: 'flex', gap: '12px', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: evt.event_type.includes('FAIL') ? 'var(--red, #ef4444)' : 'var(--teal, #10b981)',
+                          marginTop: '5px'
+                        }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--text)', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{evt.event_type}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>
+                              {new Date(evt.created_at).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text2)', marginTop: '2px' }}>
+                            {evt.details}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==========================================
+            CHANGE PASSWORD MODAL
+           ========================================== */}
+        {changePasswordModalOpen && (
+          <div className="modal-backdrop active" style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}>
+            <div className="dashboard-card animate-scale-up" style={{
+              width: '100%',
+              maxWidth: '450px',
+              padding: '28px',
+              background: 'var(--card-bg, #1a1f2c)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '12px',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text)', margin: 0 }}>Change Account Password</h3>
+                <button 
+                  onClick={() => {
+                    setChangePasswordModalOpen(false);
+                    setNewPassword('');
+                    setConfirmPassword('');
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}
+                >
+                  <IconX size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleChangePassword}>
+                <div className="field" style={{ marginBottom: '16px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>New Password</label>
+                  <input
+                    type="password"
+                    placeholder="Min 8 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '6px',
+                      color: 'var(--text)'
+                    }}
+                  />
+                </div>
+
+                <div className="field" style={{ marginBottom: '24px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>Confirm New Password</label>
+                  <input
+                    type="password"
+                    placeholder="Repeat new password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '6px',
+                      color: 'var(--text)'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                  <button 
+                    type="button" 
+                    className="btn-ghost" 
+                    onClick={() => {
+                      setChangePasswordModalOpen(false);
+                      setNewPassword('');
+                      setConfirmPassword('');
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="btn-main" 
+                    disabled={passwordLoading}
+                    style={{ padding: '8px 16px' }}
+                  >
+                    {passwordLoading ? 'Updating...' : 'Update Password'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==========================================
+            CROP PHOTO MODAL
+           ========================================== */}
+        {showCropModal && (
+          <div className="modal-backdrop active" style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}>
+            <div className="dashboard-card animate-scale-up" style={{
+              width: 'calc(100% - 32px)',
+              maxWidth: '380px',
+              padding: '24px',
+              background: 'var(--card-bg, #1a1f2c)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '16px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.55)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text)', margin: 0 }}>Crop Profile Picture</h3>
+                <button 
+                  onClick={() => setShowCropModal(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}
+                >
+                  <IconX size={20} />
+                </button>
+              </div>
+
+              {/* Crop Container */}
+              <div 
+                style={{
+                  width: '300px',
+                  height: '300px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  background: '#090a0f',
+                  borderRadius: '12px',
+                  cursor: 'move',
+                  userSelect: 'none',
+                  touchAction: 'none'
+                }}
+                onMouseDown={handleDragStart}
+                onMouseMove={handleDragMove}
+                onMouseUp={handleDragEnd}
+                onMouseLeave={handleDragEnd}
+                onTouchStart={handleDragStart}
+                onTouchMove={handleDragMove}
+                onTouchEnd={handleDragEnd}
+              >
+                {/* Scaled/Panned Image */}
+                <img
+                  ref={imageRef}
+                  src={imageSrcToCrop}
+                  alt="Crop Preview"
+                  onLoad={handleImageLoaded}
+                  style={{
+                    position: 'absolute',
+                    width: `${imageDimensions.renderedWidth}px`,
+                    height: `${imageDimensions.renderedHeight}px`,
+                    top: '50%',
+                    left: '50%',
+                    transform: `translate(-50%, -50%) translate(${cropOffset.x}px, ${cropOffset.y}px) scale(${cropZoom})`,
+                    transformOrigin: 'center',
+                    pointerEvents: 'none',
+                    userSelect: 'none',
+                    maxWidth: 'none'
+                  }}
+                />
+
+                {/* Circular Crop Overlay Mask */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0, left: 0, right: 0, bottom: 0,
+                  pointerEvents: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <div style={{
+                    width: `${cropSize}px`,
+                    height: `${cropSize}px`,
+                    borderRadius: '50%',
+                    border: '2px solid var(--teal)',
+                    boxShadow: '0 0 0 9999px rgba(8, 10, 15, 0.75)',
+                    boxSizing: 'border-box',
+                    transition: 'width 0.1s ease, height 0.1s ease'
+                  }} />
+                </div>
+              </div>
+
+              {/* Zoom Slider Controls */}
+              <div style={{ width: '100%', marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text3)', fontWeight: '600' }}>
+                  <span>ZOOM</span>
+                  <span>{Math.round(cropZoom * 100)}%</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="profile-btn-secondary"
+                    onClick={() => handleZoomChange(cropZoom - 0.1)}
+                    disabled={cropZoom <= (imageDimensions.renderedWidth ? Math.max(cropSize / imageDimensions.renderedWidth, cropSize / imageDimensions.renderedHeight) : 0.2)}
+                    style={{ height: '32px', width: '32px', padding: 0 }}
+                    title="Zoom Out"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="range"
+                    min={imageDimensions.renderedWidth ? Math.max(cropSize / imageDimensions.renderedWidth, cropSize / imageDimensions.renderedHeight) : 0.2}
+                    max="3"
+                    step="0.01"
+                    value={cropZoom}
+                    onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+                    style={{
+                      flex: 1,
+                      accentColor: 'var(--teal)',
+                      cursor: 'pointer'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="profile-btn-secondary"
+                    onClick={() => handleZoomChange(cropZoom + 0.1)}
+                    disabled={cropZoom >= 3.0}
+                    style={{ height: '32px', width: '32px', padding: 0 }}
+                    title="Zoom In"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Crop circle diameter slider */}
+              <div style={{ width: '100%', marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text3)', fontWeight: '600' }}>
+                  <span>CROP CIRCLE DIAMETER</span>
+                  <span>{cropSize}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="100"
+                  max="260"
+                  step="1"
+                  value={cropSize}
+                  onChange={(e) => handleCropSizeChange(parseInt(e.target.value))}
+                  style={{
+                    width: '100%',
+                    accentColor: 'var(--teal)',
+                    cursor: 'pointer'
+                  }}
+                />
+              </div>
+
+              {/* Live Preview of Cropped Image */}
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                marginTop: '16px',
+                gap: '6px'
+              }}>
+                <span style={{ fontSize: '11px', color: 'var(--text3)', fontWeight: '600' }}>LIVE PREVIEW</span>
+                <div style={{
+                  width: '100px',
+                  height: '100px',
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  position: 'relative',
+                  background: '#090a0f',
+                  border: '2px solid var(--teal3)',
+                  boxShadow: 'var(--shadow-tight)'
+                }}>
+                  <img
+                    src={imageSrcToCrop}
+                    alt="Cropped Live Preview"
+                    style={{
+                      position: 'absolute',
+                      width: `${imageDimensions.renderedWidth * cropZoom * (100 / cropSize)}px`,
+                      height: `${imageDimensions.renderedHeight * cropZoom * (100 / cropSize)}px`,
+                      left: `${(cropOffset.x - (imageDimensions.renderedWidth * cropZoom) / 2 + cropSize / 2) * (100 / cropSize)}px`,
+                      top: `${(cropOffset.y - (imageDimensions.renderedHeight * cropZoom) / 2 + cropSize / 2) * (100 / cropSize)}px`,
+                      maxWidth: 'none',
+                      pointerEvents: 'none',
+                      userSelect: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', width: '100%', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+                <button 
+                  type="button" 
+                  className="profile-btn-ghost" 
+                  onClick={() => setShowCropModal(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="profile-btn-main" 
+                  onClick={handleConfirmCrop}
+                >
+                  Apply &amp; Upload
                 </button>
               </div>
             </div>

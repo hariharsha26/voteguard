@@ -10,6 +10,154 @@ import { IconChartBar, IconBox, IconUsers, IconHeartHandshake, IconTrophy, IconF
 import { supabase } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx';
 
+// Base-36 / Alphanumeric helper conversions
+const base36ToInt = (str) => {
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let val = 0;
+  const upperStr = str.trim().toUpperCase();
+  for (let i = 0; i < upperStr.length; i++) {
+    const idx = chars.indexOf(upperStr[i]);
+    if (idx === -1) return -1;
+    val = val * 36 + idx;
+  }
+  return val;
+};
+
+
+
+const parsePattern = (pat) => {
+  const trimmed = pat.trim();
+  const firstUnderscoreIdx = trimmed.indexOf('_');
+  if (firstUnderscoreIdx === -1) {
+    return { valid: false, error: 'Must contain at least one underscore (_)' };
+  }
+  const prefix = trimmed.substring(0, firstUnderscoreIdx);
+  const variablePart = trimmed.substring(firstUnderscoreIdx);
+  if (/[^_]/.test(variablePart)) {
+    return { valid: false, error: 'Underscores must be at the end' };
+  }
+  return {
+    valid: true,
+    pattern: trimmed,
+    prefix,
+    varLength: variablePart.length
+  };
+};
+
+const calculateDuration = (startStr, endStr) => {
+  if (!startStr || !endStr) return '';
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return '';
+  const diffMs = end.getTime() - start.getTime();
+  if (diffMs <= 0) return 'End time must be after start time';
+  
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  
+  const parts = [];
+  if (days > 0) parts.push(`${days} Day${days > 1 ? 's' : ''}`);
+  if (hours > 0) parts.push(`${hours} Hour${hours > 1 ? 's' : ''}`);
+  if (minutes > 0) parts.push(`${minutes} Minute${minutes > 1 ? 's' : ''}`);
+  
+  return parts.join(' ');
+};
+
+const validateUploadList = (rawEligible, rawIneligible, patterns, ranges) => {
+  const eligibleRolls = [];
+  const ineligibleRolls = [];
+  let duplicatesRemoved = 0;
+  let errorsCount = 0;
+  const errorDetails = [];
+  
+  const parsedPatterns = patterns.map(p => parsePattern(p)).filter(p => p.valid);
+  
+  const seen = new Set();
+  const blacklistSet = new Set();
+  
+  const validateRoll = (roll) => {
+    if (parsedPatterns.length === 0) return true;
+    for (const pat of parsedPatterns) {
+      if (roll.startsWith(pat.prefix) && roll.length === pat.prefix.length + pat.varLength) {
+        const varPart = roll.substring(pat.prefix.length);
+        const range = ranges[pat.pattern];
+        if (range && range.from && range.to) {
+          if (range.mode === 'numeric') {
+            if (/^[0-9]+$/.test(varPart)) {
+              const val = parseInt(varPart);
+              const fromVal = parseInt(range.from);
+              const toVal = parseInt(range.to);
+              if (val >= fromVal && val <= toVal) return true;
+            }
+          } else {
+            const val = base36ToInt(varPart);
+            const fromVal = base36ToInt(range.from);
+            const toVal = base36ToInt(range.to);
+            if (val !== -1 && fromVal !== -1 && toVal !== -1) {
+              if (val >= fromVal && val <= toVal) return true;
+            }
+          }
+        } else {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  
+  rawEligible.forEach(roll => {
+    const upper = roll.trim().toUpperCase();
+    if (!upper) return;
+    if (seen.has(upper)) {
+      duplicatesRemoved++;
+      return;
+    }
+    seen.add(upper);
+    
+    if (!validateRoll(upper)) {
+      errorsCount++;
+      errorDetails.push(`Voter "${upper}" (Column A) does not match pattern scope.`);
+      return;
+    }
+    eligibleRolls.push(upper);
+  });
+  
+  rawIneligible.forEach(roll => {
+    const upper = roll.trim().toUpperCase();
+    if (!upper) return;
+    if (blacklistSet.has(upper)) {
+      duplicatesRemoved++;
+      return;
+    }
+    blacklistSet.add(upper);
+    
+    if (!validateRoll(upper)) {
+      errorsCount++;
+      errorDetails.push(`Voter "${upper}" (Column B) does not match pattern scope.`);
+      return;
+    }
+    
+    if (seen.has(upper)) {
+      errorsCount++;
+      const idx = eligibleRolls.indexOf(upper);
+      if (idx !== -1) eligibleRolls.splice(idx, 1);
+      errorDetails.push(`Conflict: Voter "${upper}" is in both whitelist and blacklist.`);
+      return;
+    }
+    ineligibleRolls.push(upper);
+  });
+  
+  return {
+    eligible: eligibleRolls,
+    ineligible: ineligibleRolls,
+    duplicatesRemoved,
+    errorsCount,
+    errorDetails,
+    rowsProcessed: rawEligible.length + rawIneligible.length
+  };
+};
 
 export default function Dashboard() {
 
@@ -21,6 +169,22 @@ export default function Dashboard() {
   const [time, setTime] = useState(new Date().toLocaleTimeString());
   const navigate = useNavigate();
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [newElName, setNewElName] = useState('');
+  const [newElDesc, setNewElDesc] = useState('');
+  const [newElStart, setNewElStart] = useState('');
+  const [newElEnd, setNewElEnd] = useState('');
+  const [newElAccessCode, setNewElAccessCode] = useState('');
+  const [newElPatterns, setNewElPatterns] = useState('');
+  const [newElRanges, setNewElRanges] = useState({});
+  const [wizardStep, setWizardStep] = useState(1);
+  const [uploadedEligibleRolls, setUploadedEligibleRolls] = useState([]);
+  const [uploadedIneligibleRolls, setUploadedIneligibleRolls] = useState([]);
+  const [uploadReport, setUploadReport] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [excelInputEligible, setExcelInputEligible] = useState('');
+  const [excelInputIneligible, setExcelInputIneligible] = useState('');
+  const [excelValidationLogs, setExcelValidationLogs] = useState([]);
+  const [excelSuccess, setExcelSuccess] = useState(null);
   const [eligibilityElectionId, setEligibilityElectionId] = useState('');
   const [eligibilitySummary, setEligibilitySummary] = useState({ eligible: 0, ineligible: 0, duplicates: 0, conflicts: 0 });
   const [globalSearch, setGlobalSearch] = useState('');
@@ -33,12 +197,7 @@ export default function Dashboard() {
   const [inspectedElection, setInspectedElection] = useState(null);
   const [selectedResultElectionId, setSelectedResultElectionId] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([
-    { id: 1, type: 'critical', text: 'ECE Rep Election Tie Imbalance Identified.', ts: '5 mins ago', read: false },
-    { id: 2, type: 'warning', text: 'Email Delivery Relay Latency high (1.4s).', ts: '15 mins ago', read: false },
-    { id: 3, type: 'info', text: 'System backup synchronized successfully.', ts: '25 mins ago', read: true },
-    { id: 4, type: 'info', text: 'Student Council President template updated.', ts: '1 hour ago', read: true },
-  ]);
+  const [notifications, setNotifications] = useState([]);
   const [activeAlerts] = useState([]);
 
   // Phase 6 States
@@ -183,6 +342,8 @@ export default function Dashboard() {
       (async () => { await fetchOperationsStatus(); })();
     }
   }, [activeTab, fetchOperationsStatus]);
+
+
 
   // Fetch security dashboard data
   const fetchSecurityData = useCallback(async () => {
@@ -378,6 +539,7 @@ export default function Dashboard() {
   const [voters, setVoters] = useState([]);
   const [selectedVoters, setSelectedVoters] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [turnoutData, setTurnoutData] = useState([]);
   const [securityStats, setSecurityStats] = useState({
     duplicateAttempts: 0,
     invalidTokens: 0,
@@ -416,33 +578,87 @@ export default function Dashboard() {
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [electionTemplates, setElectionTemplates] = useState([
-    { id: 'T_CR', name: 'CR Election Template', description: 'Class Representative vote with standard 1-64 CSE roll index.', rules: { branch: 'CSE', rollRange: '1-64', laterals: true } },
-    { id: 'T_DEPT', name: 'Department Representative Template', description: 'Department wide election template.', rules: { branch: 'ECE', rollRange: '1-100', laterals: true } },
-    { id: 'T_CLUB', name: 'Club President Template', description: 'Presidential poll for societies.', rules: { branch: 'ALL', rollRange: 'ALL', laterals: false } },
-    { id: 'T_SENATE', name: 'Student Senate Template', description: 'College-wide student senate election structure.', rules: { branch: 'ALL', rollRange: '1-200', laterals: true } }
+    {
+      id: 'T_CR',
+      name: 'CR Election Template',
+      description: 'Class Representative vote with standard 25L35A44__ CSE roll index.',
+      patterns: '25L35A44__',
+      ranges: {
+        '25L35A44__': { from: '01', to: '64', mode: 'numeric' }
+      }
+    },
+    {
+      id: 'T_DEPT',
+      name: 'Department Representative Template',
+      description: 'Department wide election template for ECE.',
+      patterns: '25L35A44__, 24L31A44__',
+      ranges: {
+        '25L35A44__': { from: '01', to: '64', mode: 'numeric' },
+        '24L31A44__': { from: '01', to: '64', mode: 'numeric' }
+      }
+    },
+    {
+      id: 'T_CLUB',
+      name: 'Club President Template',
+      description: 'Presidential poll for societies (alphanumeric lateral entries enabled).',
+      patterns: '25L35A44__',
+      ranges: {
+        '25L35A44__': { from: 'A0', to: 'C7', mode: 'alphanumeric' }
+      }
+    }
   ]);
-  const [newElName, setNewElName] = useState('');
-  const [newElDesc, setNewElDesc] = useState('');
-  const [newElStart, setNewElStart] = useState('2026-06-02');
-  const [newElEnd, setNewElEnd] = useState('2026-06-04 17:00');
-  const [newElType, setNewElType] = useState('Public');
-  const [newElAccessCode, setNewElAccessCode] = useState('');
-  const [newElBranch, setNewElBranch] = useState('ALL');
-  const [newElRange, setNewElRange] = useState('1-100');
-  const [newElLaterals, setNewElLaterals] = useState(true);
-  const [excelInputEligible, setExcelInputEligible] = useState('');
-  const [excelInputIneligible, setExcelInputIneligible] = useState('');
-  const [excelValidationLogs, setExcelValidationLogs] = useState([]);
-  const [excelSuccess, setExcelSuccess] = useState(null);
+  const handleRangeChange = (pat, field, val) => {
+    setNewElRanges(prev => ({
+      ...prev,
+      [pat]: {
+        ...prev[pat],
+        [field]: val
+      }
+    }));
+  };
+
+  const updatePatternsAndRanges = (patternsStr) => {
+    setNewElPatterns(patternsStr);
+    const parsed = patternsStr
+      .split(',')
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+    
+    setNewElRanges(prev => {
+      const updated = { ...prev };
+      let changed = false;
+      
+      parsed.forEach(pat => {
+        const info = parsePattern(pat);
+        if (info.valid && !updated[pat]) {
+          const varLength = info.varLength;
+          updated[pat] = {
+            from: '0'.repeat(varLength - 1) + '1',
+            to: '9'.repeat(varLength),
+            mode: 'numeric'
+          };
+          changed = true;
+        }
+      });
+      
+      Object.keys(updated).forEach(key => {
+        if (!parsed.includes(key)) {
+          delete updated[key];
+          changed = true;
+        }
+      });
+      
+      return changed ? updated : prev;
+    });
+  };
   const [tokenRecoveryUser, setTokenRecoveryUser] = useState(null);
   const [recoveryStatusText, setRecoveryStatusText] = useState('');
   const [isRecovering, setIsRecovering] = useState(false);
   const [recoveryFinished, setRecoveryFinished] = useState(false);
   const [candName, setCandName] = useState('');
-  const [candDept, setCandDept] = useState('CSE');
-  const [candRoll, setCandRoll] = useState('');
-  const [candManifesto, setCandManifesto] = useState('');
-  const [candElectionId, setCandElectionId] = useState('ELC001');
+  const [candDept, setCandDept] = useState('');
+  const [candDescription, setCandDescription] = useState('');
+  const [candElectionId, setCandElectionId] = useState('');
   const [editCandId, setEditCandId] = useState(null);
   const [displayedLogsCount, setDisplayedLogsCount] = useState(15); void setDisplayedLogsCount;
   const [auditTimeFilterFrom, setAuditTimeFilterFrom] = useState(''); void auditTimeFilterFrom; void setAuditTimeFilterFrom;
@@ -485,9 +701,7 @@ export default function Dashboard() {
         .from('election_summary')
         .select('*');
 
-      const { data: dbIntegrity } = await supabase
-        .from('election_integrity_report')
-        .select('*');
+      const dbIntegrity = null; // election_integrity_report view not yet created
 
       // 2. Fetch candidates
       const { data: dbCandidates, error: candError } = await supabase
@@ -526,21 +740,39 @@ export default function Dashboard() {
       // 7. Fetch votes (to aggregate candidate counts - RLS will auto-restrict to Completed/Emergency_Stopped/Draw elections)
       const { data: dbVotes } = await supabase
         .from('votes')
-        .select('candidate_id');
+        .select('candidate_id, created_at');
       const votesMap = {};
+      
+      const hoursMap = {
+        '09:00': 0, '10:00': 0, '11:00': 0, '12:00': 0,
+        '13:00': 0, '14:00': 0, '15:00': 0, '16:00': 0
+      };
+      
       if (dbVotes) {
         dbVotes.forEach(v => {
           votesMap[v.candidate_id] = (votesMap[v.candidate_id] || 0) + 1;
+          if (v.created_at) {
+            const d = new Date(v.created_at);
+            const hourStr = d.getHours().toString().padStart(2, '0') + ':00';
+            if (hoursMap[hourStr] !== undefined) {
+              hoursMap[hourStr] += 1;
+            }
+          }
         });
       }
+      
+      const computedTurnout = Object.entries(hoursMap).map(([hr, val]) => ({
+        hr,
+        v: val
+      }));
+      setTurnoutData(computedTurnout);
 
       // Map candidates
       const mappedCandidates = (dbCandidates || []).map(c => ({
         id: c.id,
         name: c.candidate_name,
-        rollNo: c.roll_number,
         dept: c.department || '',
-        manifesto: c.manifesto || '',
+        description: c.description || '',
         electionId: c.election_id,
         status: c.status || 'active',
         votes: votesMap[c.id] || 0
@@ -563,11 +795,7 @@ export default function Dashboard() {
         const elig = activeEl ? (dbEligibility || []).find(e => e.roll_number === v.roll_number && e.election_id === activeEl.id) : null;
         let isEligible = true;
         if (activeEl) {
-          if (activeEl.election_type === 'Private') {
-            isEligible = elig ? elig.is_eligible : false;
-          } else {
-            isEligible = elig ? elig.is_eligible : true;
-          }
+          isEligible = elig ? elig.is_eligible : false;
         }
 
         return {
@@ -610,20 +838,20 @@ export default function Dashboard() {
           description: el.description || '',
           start: formatTime(el.start_time),
           end: formatTime(el.end_time),
-          type: el.election_type,
           accessCode: el.access_code || '',
           status: el.status,
+          type: el.access_code ? 'Private' : 'Public',
           currentRound: el.current_round,
           isTie: el.is_tie,
           jointWinner: el.joint_winners,
           winners: el.winners,
-          voters: summary ? Number(summary.total_eligible_voters) : (stat ? Number(stat.eligible_voters) : (el.election_type === 'Private' ? elEligibleCount : (dbVoters || []).length)),
-          votesCast: summary ? Number(summary.total_votes) : (stat ? Number(stat.votes_cast) : elVotesCast),
+          voters: summary ? Number(summary.total_eligible_voters) : (stat ? Number(stat.eligible_voters) : elEligibleCount),
+          votesCast: summary ? Number(summary.total_votes) : elVotesCast,
           turnoutPercentage: summary ? Number(summary.turnout_percentage) : (stat ? Number(stat.turnout_percentage) : 0),
           results: results,
           summary: summary,
           integrity: integrity,
-          rules: { branch: 'ALL', rollRange: 'ALL', laterals: true },
+          eligibilityRules: el.eligibility_rules || [],
           candidates: elCands.map(c => c.id)
         };
       });
@@ -662,8 +890,8 @@ export default function Dashboard() {
       setLogs(mappedLogs);
 
       // Generate security stats dynamically
-      const invalidTokenLogsCount = (dbLogs || []).filter(l => l.event_type === 'Token Checked in Portal' && l.details.includes('Not Found')).length;
-      const rateLimitLogsCount = (dbLogs || []).filter(l => l.event_type === 'OTP Failed' || l.details.includes('lockout')).length;
+      const invalidTokenLogsCount = (dbLogs || []).filter(l => l.event_type === 'Token Checked in Portal' && (l.details || '').includes('Not Found')).length;
+      const rateLimitLogsCount = (dbLogs || []).filter(l => l.event_type === 'OTP Failed' || (l.details || '').includes('lockout')).length;
 
       setSecurityStats({
         duplicateAttempts: (dbParticipation || []).filter(p => p.has_requested_token).length,
@@ -1134,7 +1362,7 @@ export default function Dashboard() {
       alert('Failed to start election: ' + updateErr.message);
     } else {
       await addAuditLog('ELECTION_START', 'admin', `Activated election ${el.name} (${id})`, 'INFO', 'ok');
-      alert(`Election "${el.name}" is now ACTIVE!`);
+      alert(`✅ Election "${el.name}" is now ACTIVE!\n\nThis election is now visible to all eligible voters on the Voter Dashboard.\nVoters with active sessions will be notified automatically.`);
       await fetchDatabaseData();
     }
   };
@@ -1250,9 +1478,8 @@ export default function Dashboard() {
     if (!t) return;
     setNewElName(t.name);
     setNewElDesc(t.description);
-    setNewElBranch(t.rules.branch);
-    setNewElRange(t.rules.rollRange);
-    setNewElLaterals(t.rules.laterals);
+    setNewElPatterns(t.patterns);
+    setNewElRanges(t.ranges);
     setSelectedTemplate(id);
     alert(`Loaded election settings template: ${t.name}`);
   };
@@ -1267,7 +1494,8 @@ export default function Dashboard() {
       id: tId,
       name: `${newElName} Template`,
       description: `Custom template saved from active configuration.`,
-      rules: { branch: newElBranch, rollRange: newElRange, laterals: newElLaterals }
+      patterns: newElPatterns,
+      ranges: newElRanges
     };
     setElectionTemplates(prev => [...prev, newTemplate]);
     addAuditLog('TEMPLATE_SAVE', 'admin', `Saved ${newElName} as a loadable template`, 'INFO', 'ok');
@@ -1277,35 +1505,95 @@ export default function Dashboard() {
   // Handle New Election Creation
   // Handle New Election Creation
   const handleCreateElection = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!newElName.trim()) {
       alert('Election Name is required.');
       return;
     }
-    if (isSubmitting) return;
-    setIsSubmitting(true);
+    
+    // Validate Patterns & Ranges
+    const pats = newElPatterns
+      .split(',')
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+      
+    if (pats.length === 0) {
+      alert('At least one Eligible Voter ID Pattern is required.');
+      return;
+    }
+    
+    const formattedRules = [];
+    for (const pat of pats) {
+      const info = parsePattern(pat);
+      if (!info.valid) {
+        alert(`Pattern "${pat}" is invalid: ${info.error}`);
+        return;
+      }
+      
+      const range = newElRanges[pat];
+      if (!range || !range.from || !range.to) {
+        alert(`Range configuration for pattern "${pat}" is incomplete.`);
+        return;
+      }
+      
+      if (range.from.length !== info.varLength || range.to.length !== info.varLength) {
+        alert(`Range limits for "${pat}" must be exactly ${info.varLength} characters long.`);
+        return;
+      }
+      
+      if (range.mode === 'numeric') {
+        if (!/^[0-9]+$/.test(range.from) || !/^[0-9]+$/.test(range.to)) {
+          alert(`Numeric range limits for "${pat}" must contain only digits.`);
+          return;
+        }
+        if (parseInt(range.from) > parseInt(range.to)) {
+          alert(`Numeric range "From" value must be less than or equal to "To" value for "${pat}".`);
+          return;
+        }
+      } else {
+        const fromVal = base36ToInt(range.from);
+        const toVal = base36ToInt(range.to);
+        if (fromVal === -1 || toVal === -1) {
+          alert(`Alphanumeric range limits for "${pat}" contain invalid characters.`);
+          return;
+        }
+        if (fromVal > toVal) {
+          alert(`Alphanumeric range "From" value must be less than or equal to "To" value for "${pat}".`);
+          return;
+        }
+      }
+      
+      formattedRules.push({
+        pattern: pat,
+        prefix: info.prefix,
+        variableLength: info.varLength,
+        mode: range.mode,
+        from: range.from.toUpperCase(),
+        to: range.to.toUpperCase()
+      });
+    }
 
     const startTime = new Date(newElStart);
     const endTime = new Date(newElEnd);
     const now = new Date();
 
     if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-      alert('Invalid start or end time format. Please use YYYY-MM-DD for start and YYYY-MM-DD HH:MM for end.');
-      setIsSubmitting(false);
+      alert('Invalid start or end time format.');
       return;
     }
 
-    if (startTime < now - 60000) { // allow 1 minute tolerance
+    if (startTime < now - 60000) {
       alert('Start time cannot be in the past.');
-      setIsSubmitting(false);
       return;
     }
 
     if (endTime <= startTime) {
       alert('End time must be after start time.');
-      setIsSubmitting(false);
       return;
     }
+
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
     try {
       const electionCode = 'ELC-' + newElName.replace(/[^a-zA-Z0-9]/g, '-').toUpperCase() + '-' + Date.now();
@@ -1315,12 +1603,12 @@ export default function Dashboard() {
         .insert({
           election_name: newElName,
           election_code: electionCode,
-          election_type: newElType,
-          status: 'DRAFT', // Default status is DRAFT
-          access_code: newElType === 'Private' ? (newElAccessCode || 'VG-ACCESS-CODE') : null,
+          status: 'DRAFT',
+          access_code: newElAccessCode || null,
           start_time: startTime.toISOString(),
           end_time: endTime.toISOString(),
-          description: newElDesc
+          description: newElDesc,
+          eligibility_rules: formattedRules
         })
         .select()
         .single();
@@ -1328,13 +1616,46 @@ export default function Dashboard() {
       if (error) {
         alert('Failed to initialize election registry: ' + error.message);
       } else {
+        // Bulk insert uploaded eligibility lists from Step 4 if they exist
+        const bulkElig = [];
+        uploadedEligibleRolls.forEach(roll => {
+          bulkElig.push({
+            election_id: newElData.id,
+            roll_number: roll,
+            is_eligible: true
+          });
+        });
+        uploadedIneligibleRolls.forEach(roll => {
+          bulkElig.push({
+            election_id: newElData.id,
+            roll_number: roll,
+            is_eligible: false
+          });
+        });
+
+        if (bulkElig.length > 0) {
+          const { error: eligError } = await supabase
+            .from('election_eligibility')
+            .insert(bulkElig);
+          if (eligError) {
+            alert('Election created, but failed to insert eligibility list: ' + eligError.message);
+          }
+        }
+
         await addAuditLog('ELECTION_CREATE', 'admin', `Created election ${newElName} (${newElData.id})`, 'INFO', 'ok');
-        alert(`New election "${newElName}" successfully created and configured!`);
+        alert(`✅ Election "${newElName}" successfully created and configured!\n\n⚠️ Status: DRAFT — currently hidden from voters.\n\nTo make this election visible to voters, go to the Elections tab and click the Activate button.`);
         
+        // Reset state
         setNewElName('');
         setNewElDesc('');
         setNewElAccessCode('');
+        setNewElPatterns('');
+        setNewElRanges({});
+        setUploadedEligibleRolls([]);
+        setUploadedIneligibleRolls([]);
+        setUploadReport(null);
         setSelectedTemplate('');
+        setWizardStep(1);
         
         await fetchDatabaseData();
       }
@@ -1350,8 +1671,12 @@ export default function Dashboard() {
   // Candidate setup
   const handleCandidateSubmit = async (e) => {
     e.preventDefault();
-    if (!candName.trim() || !candRoll.trim()) {
-      alert('Please fill out Candidate Name and Student Roll Number.');
+    if (!candName.trim()) {
+      alert('Please fill out Candidate Name.');
+      return;
+    }
+    if (!candElectionId) {
+      alert('Please select an election to assign the candidate to.');
       return;
     }
     if (isSubmitting) return;
@@ -1370,25 +1695,19 @@ export default function Dashboard() {
           .from('candidates')
           .update({
             candidate_name: candName,
-            department: candDept,
-            roll_number: candRoll.trim().toUpperCase(),
-            manifesto: candManifesto,
+            department: candDept || null,
+            description: candDescription,
             election_id: candElectionId
           })
           .eq('id', editCandId);
 
         if (error) {
-          if (error.message.includes('unique') || error.message.includes('candidates_election_roll_unique')) {
-            alert('Error: A candidate with this roll number is already assigned to this election.');
-          } else {
-            alert('Failed to update candidate: ' + error.message);
-          }
+          alert('Failed to update candidate: ' + error.message);
         } else {
-          await addAuditLog('CANDIDATE_EDIT', 'admin', `Modified candidate details: ${candName} (${candRoll})`, 'INFO', 'ok');
+          await addAuditLog('CANDIDATE_EDIT', 'admin', `Modified candidate details: ${candName}`, 'INFO', 'ok');
           setEditCandId(null);
           setCandName('');
-          setCandRoll('');
-          setCandManifesto('');
+          setCandDescription('');
           await fetchDatabaseData();
         }
       } else {
@@ -1397,23 +1716,17 @@ export default function Dashboard() {
           .insert({
             election_id: candElectionId,
             candidate_name: candName,
-            roll_number: candRoll.trim().toUpperCase(),
-            department: candDept,
-            manifesto: candManifesto,
+            department: candDept || null,
+            description: candDescription || null,
             status: 'active'
           });
 
         if (error) {
-          if (error.message.includes('unique') || error.message.includes('candidates_election_roll_unique')) {
-            alert('Error: A candidate with this roll number is already assigned to this election.');
-          } else {
-            alert('Failed to bind candidate: ' + error.message);
-          }
+          alert('Failed to bind candidate: ' + error.message);
         } else {
           await addAuditLog('CANDIDATE_CREATE', 'admin', `Assigned new candidate ${candName} to election ${candElectionId}`, 'INFO', 'ok');
           setCandName('');
-          setCandRoll('');
-          setCandManifesto('');
+          setCandDescription('');
           await fetchDatabaseData();
         }
       }
@@ -1433,8 +1746,7 @@ export default function Dashboard() {
     setEditCandId(c.id);
     setCandName(c.name);
     setCandDept(c.dept);
-    setCandRoll(c.rollNo);
-    setCandManifesto(c.manifesto);
+    setCandDescription(c.description);
     setCandElectionId(c.electionId);
   };
 
@@ -1461,6 +1773,74 @@ export default function Dashboard() {
         }
       }
     );
+  };
+
+
+  // Wizard Excel Drag & Drop Uploader Subsystem
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setDragOver(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      processSpreadsheetFile(file);
+    }
+  };
+
+  const processSpreadsheetFile = (file) => {
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        
+        const eligibleFromFile = [];
+        const ineligibleFromFile = [];
+        data.forEach(row => {
+          if (row[0]) eligibleFromFile.push(String(row[0]).trim());
+          if (row[1]) ineligibleFromFile.push(String(row[1]).trim());
+        });
+        
+        const isHeader = (val) => /^(eligible|whitelist|ineligible|blacklist|roll|student|name|id)/i.test(val);
+        if (eligibleFromFile.length > 0 && isHeader(eligibleFromFile[0])) eligibleFromFile.shift();
+        if (ineligibleFromFile.length > 0 && isHeader(ineligibleFromFile[0])) ineligibleFromFile.shift();
+
+        // Validate against configured patterns & ranges
+        const pats = newElPatterns.split(',').map(p => p.trim()).filter(p => p.length > 0);
+        const report = validateUploadList(eligibleFromFile, ineligibleFromFile, pats, newElRanges);
+        
+        setUploadedEligibleRolls(report.eligible);
+        setUploadedIneligibleRolls(report.ineligible);
+        setUploadReport({
+          fileName: file.name,
+          totalRecords: report.rowsProcessed,
+          validRecords: report.eligible.length + report.ineligible.length,
+          invalidRecords: report.errorsCount,
+          eligibleRecords: report.eligible.length,
+          blacklistedRecords: report.ineligible.length,
+          errors: report.errorDetails
+        });
+      } catch (err) {
+        alert('Failed to parse spreadsheet file: ' + err.message);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleWizardFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) processSpreadsheetFile(file);
   };
 
 
@@ -1520,7 +1900,7 @@ export default function Dashboard() {
       return;
     }
 
-    setExcelValidationLogs(['[14:26:01] Initializing Structural Excel Parser Ingestion Engine...', '[14:26:02] Running pattern and integrity checks...']);
+    setExcelValidationLogs(['Initializing Excel Ingestion & Prefix Validation Engine...', 'Running pattern and range integrity checks...']);
     setExcelSuccess('checking');
 
     // Parse separators: commas, spaces, or newlines
@@ -1534,64 +1914,109 @@ export default function Dashboard() {
     const rawEligible = parseRolls(excelInputEligible);
     const rawIneligible = parseRolls(excelInputIneligible);
 
-    // Whitelist duplicates
-    const uniqueEligibleSet = new Set();
+    const rules = selectedEl?.eligibilityRules || [];
+
+    const finalEligible = [];
+    const finalIneligible = [];
     let whitelistDuplicates = 0;
-    rawEligible.forEach(roll => {
-      if (uniqueEligibleSet.has(roll)) {
-        whitelistDuplicates++;
-      } else {
-        uniqueEligibleSet.add(roll);
-      }
-    });
-
-    // Blacklist duplicates
-    const uniqueIneligibleSet = new Set();
     let blacklistDuplicates = 0;
-    rawIneligible.forEach(roll => {
-      if (uniqueIneligibleSet.has(roll)) {
-        blacklistDuplicates++;
-      } else {
-        uniqueIneligibleSet.add(roll);
+    let conflictsCount = 0;
+    let malformedCount = 0;
+    const errorsList = [];
+
+    const seen = new Set();
+    const blacklistSet = new Set();
+
+    const validateRollAgainstRules = (roll, rulesList) => {
+      if (rulesList.length === 0) return true; // Legacy fallback
+      for (const rule of rulesList) {
+        const { prefix, variableLength, mode, from, to } = rule;
+        if (roll.startsWith(prefix) && roll.length === prefix.length + variableLength) {
+          const varPart = roll.substring(prefix.length);
+          if (mode === 'numeric') {
+            if (/^[0-9]+$/.test(varPart)) {
+              const val = parseInt(varPart);
+              const fromVal = parseInt(from);
+              const toVal = parseInt(to);
+              if (val >= fromVal && val <= toVal) return true;
+            }
+          } else {
+            const val = base36ToInt(varPart);
+            const fromVal = base36ToInt(from);
+            const toVal = base36ToInt(to);
+            if (val !== -1 && fromVal !== -1 && toVal !== -1) {
+              if (val >= fromVal && val <= toVal) return true;
+            }
+          }
+        }
       }
+      return false;
+    };
+
+    // Process whitelist
+    rawEligible.forEach(roll => {
+      if (seen.has(roll)) {
+        whitelistDuplicates++;
+        return;
+      }
+      seen.add(roll);
+
+      if (!validateRollAgainstRules(roll, rules)) {
+        malformedCount++;
+        errorsList.push(`Roll "${roll}" (Column A) rejected: does not match pattern/range scope.`);
+        return;
+      }
+      finalEligible.push(roll);
     });
 
-    const uniqueEligible = Array.from(uniqueEligibleSet);
-    const uniqueIneligible = Array.from(uniqueIneligibleSet);
+    // Process blacklist
+    rawIneligible.forEach(roll => {
+      if (blacklistSet.has(roll)) {
+        blacklistDuplicates++;
+        return;
+      }
+      blacklistSet.add(roll);
 
-    // Conflicts
-    const conflicts = uniqueEligible.filter(x => uniqueIneligible.includes(x));
-    const conflictsCount = conflicts.length;
+      if (!validateRollAgainstRules(roll, rules)) {
+        malformedCount++;
+        errorsList.push(`Roll "${roll}" (Column B) rejected: does not match pattern/range scope.`);
+        return;
+      }
 
-    // Filter conflicts out of both lists
-    const finalEligible = uniqueEligible.filter(x => !conflicts.includes(x));
-    const finalIneligible = uniqueIneligible.filter(x => !conflicts.includes(x));
+      if (seen.has(roll)) {
+        conflictsCount++;
+        const idx = finalEligible.indexOf(roll);
+        if (idx !== -1) finalEligible.splice(idx, 1);
+        errorsList.push(`Conflict: Roll "${roll}" is in both columns. Excluded.`);
+        return;
+      }
+      finalIneligible.push(roll);
+    });
 
     const totalDuplicates = whitelistDuplicates + blacklistDuplicates;
 
-    // Format validation (YYDEPTNNN)
-    const rollRegex = /^[0-9]{2}[A-Z]{2,4}[0-9]{2,4}$/;
-    const malformedEligible = finalEligible.filter(x => !rollRegex.test(x));
-    const malformedIneligible = finalIneligible.filter(x => !rollRegex.test(x));
-    const totalMalformed = malformedEligible.length + malformedIneligible.length;
-
     setTimeout(async () => {
       let logsBuffer = [
+        `Processed ${rawEligible.length + rawIneligible.length} total rows.`,
         `Column A whitelist: parsed ${rawEligible.length} entries.`,
         `Column B blacklist: parsed ${rawIneligible.length} entries.`
       ];
 
       if (totalDuplicates > 0) {
-        logsBuffer.push(`⚠️ CLEANUP: Removed ${totalDuplicates} duplicate roll entries.`);
+        logsBuffer.push(`Removed ${totalDuplicates} duplicate roll entries.`);
       }
 
       if (conflictsCount > 0) {
-        logsBuffer.push(`❌ CONFLICT ERROR: ${conflictsCount} student roll numbers [${conflicts.join(', ')}] were found in BOTH Whitelist and Blacklist. Suspended insertion for these rolls.`);
+        logsBuffer.push(`Conflict Error: Suspended insertion for ${conflictsCount} conflict roll numbers.`);
       }
 
-      if (totalMalformed > 0) {
-        logsBuffer.push(`⚠️ WARNING: ${totalMalformed} entries do not match standard roll format (YYDEPTNNN). (e.g. ${[...malformedEligible, ...malformedIneligible].slice(0, 3).join(', ')}). Ingesting anyway.`);
+      if (malformedCount > 0) {
+        logsBuffer.push(`Rejected ${malformedCount} rows due to pattern or range mismatches.`);
       }
+
+      errorsList.forEach(err => {
+        logsBuffer.push(`  ❌ ${err}`);
+      });
 
       try {
         // Clear old eligibility
@@ -1626,7 +2051,7 @@ export default function Dashboard() {
           if (insError) throw insError;
         }
 
-        logsBuffer.push(`✓ Ingestion Completed: Whitelist override applied to ${finalEligible.length} students, Blacklist applied to ${finalIneligible.length} students.`);
+        logsBuffer.push(`✓ Ingestion Completed: Eligible Imported: ${finalEligible.length}, Ineligible Imported: ${finalIneligible.length}.`);
         setExcelValidationLogs(logsBuffer);
         setExcelSuccess(true);
         setEligibilitySummary({
@@ -1636,8 +2061,7 @@ export default function Dashboard() {
           conflicts: conflictsCount
         });
 
-        await addAuditLog('EXCEL_INGEST', 'admin', `Ingested eligibility records for election ${eligibilityElectionId}: ${finalEligible.length} eligible, ${finalIneligible.length} restricted, ${totalDuplicates} duplicates, ${conflictsCount} conflicts`, 'INFO', 'ok');
-
+        await addAuditLog('EXCEL_INGEST', 'admin', `Ingested eligibility: ${finalEligible.length} eligible, ${finalIneligible.length} restricted, ${totalDuplicates} duplicates, ${conflictsCount} conflicts`, 'INFO', 'ok');
         await fetchDatabaseData();
       } catch (err) {
         logsBuffer.push(`❌ DATABASE WRITE ERROR: ${err.message}`);
@@ -2296,27 +2720,27 @@ export default function Dashboard() {
                 <div className="dash-chart-card">
                   <div className="dash-chart-header">
                     <span className="dash-chart-title"><IconTrendingUp size={18} /> Turnout Participation Heatmap</span>
-                    <span className="heatmap-info">Busiest voting hours (Total: 1,950 votes)</span>
+                    <span className="heatmap-info">Busiest voting hours (Total: {turnoutData.reduce((sum, x) => sum + x.v, 0)} votes)</span>
                   </div>
 
                   <div className="heatmap-bars">
-                    {[
-                      { hr: '09:00', v: 45 },
-                      { hr: '10:00', v: 92 },
-                      { hr: '11:00', v: 120 },
-                      { hr: '12:00', v: 60 },
-                      { hr: '13:00', v: 30 },
-                      { hr: '14:00', v: 75 },
-                      { hr: '15:00', v: 110 },
-                      { hr: '16:00', v: 20 },
-                    ].map((x, i) => (
-                      <div key={i} className="heatmap-col">
-                        <div className="heatmap-bar-fill" style={{ height: `${(x.v/120)*100}%` }}>
-                          <span className="tooltip-val">{x.v}v</span>
-                        </div>
-                        <span className="heatmap-lbl">{x.hr}</span>
+                    {turnoutData.length === 0 || turnoutData.every(x => x.v === 0) ? (
+                      <div style={{ color: 'var(--text3)', fontSize: '13px', margin: 'auto', textAlign: 'center', padding: '20px 0' }}>
+                        No ballots cast in active polling hours yet.
                       </div>
-                    ))}
+                    ) : (
+                      turnoutData.map((x, i) => {
+                        const maxVal = Math.max(...turnoutData.map(h => h.v), 1);
+                        return (
+                          <div key={i} className="heatmap-col">
+                            <div className="heatmap-bar-fill" style={{ height: `${(x.v / maxVal) * 100}%` }}>
+                              <span className="tooltip-val">{x.v}v</span>
+                            </div>
+                            <span className="heatmap-lbl">{x.hr}</span>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               </SpotlightCard>
@@ -2477,65 +2901,95 @@ export default function Dashboard() {
           <div className="dashboard-body animate-fade-in">
             <div className="elections-view-container">
               
-              {/* Election Configuration Form */}
+              {/* Election Configuration Stepper Wizard */}
               <div className="users-table-card">
                 <h2 className="tab-section-title">Configure &amp; Initialize New Election</h2>
                 
-                {/* Template loader subsystem */}
-                <div className="template-selector-sub">
-                  <label className="field-title" htmlFor="template-select">Load Configuration Template:</label>
-                  <select 
-                    id="template-select"
-                    value={selectedTemplate} 
-                    onChange={(e) => handleLoadTemplate(e.target.value)}
-                    className="template-select-box"
-                  >
-                    <option value="">-- Choose Template to Auto-Fill --</option>
-                    {electionTemplates.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                  <button className="btn-action-sm" onClick={handleSaveAsTemplate}>
-                    <IconDeviceFloppy size={18} /> Save Active Config as Template
-                  </button>
+                {/* Stepper Header */}
+                <div className="wizard-stepper-container" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '28px', borderBottom: '1px solid var(--border)', paddingBottom: '16px', overflowX: 'auto' }}>
+                  {[1, 2, 3, 4, 5].map((step) => {
+                    const stepLabels = ['Information', 'Eligibility', 'Schedule', 'Roster Ingestion', 'Review & Deploy'];
+                    const isActive = wizardStep === step;
+                    const isCompleted = wizardStep > step;
+                    return (
+                      <div key={step} style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: isActive || isCompleted ? 1 : 0.4, transition: 'all 0.3s ease', minWidth: 'max-content', marginRight: '16px' }}>
+                        <span style={{
+                          width: '26px',
+                          height: '26px',
+                          borderRadius: '50%',
+                          background: isCompleted ? 'var(--teal)' : isActive ? 'var(--teal)' : 'var(--bg-card)',
+                          color: isActive || isCompleted ? '#000' : 'var(--text2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: '700',
+                          fontSize: '12px',
+                          border: isActive ? '2px solid var(--teal)' : '1px solid var(--border)',
+                          boxShadow: isActive ? '0 0 10px rgba(74, 157, 143, 0.3)' : 'none'
+                        }}>
+                          {isCompleted ? '✓' : step}
+                        </span>
+                        <span style={{ fontSize: '13px', fontWeight: isActive ? '600' : '500', color: isActive ? 'var(--teal)' : 'var(--text2)' }}>
+                          {stepLabels[step - 1]}
+                        </span>
+                        {step < 5 && <span style={{ color: 'var(--border)', marginLeft: '16px' }}>—</span>}
+                      </div>
+                    );
+                  })}
                 </div>
 
-                <form onSubmit={handleCreateElection} className="create-election-form">
-                  <div className="form-row-grid">
-                    <div className="field">
-                      <label htmlFor="new-el-name">Election Name</label>
-                      <input 
-                        id="new-el-name"
-                        type="text" 
-                        placeholder="e.g. Student Council CR Poll"
-                        value={newElName}
-                        onChange={(e) => setNewElName(e.target.value)}
-                        aria-required="true"
-                      />
+                {/* STEP 1: Election Information */}
+                {wizardStep === 1 && (
+                  <div className="wizard-step-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {/* Template Loader Dropdown */}
+                    <div className="template-selector-sub" style={{ background: 'rgba(255, 255, 255, 0.01)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: '200px' }}>
+                        <label className="field-title" htmlFor="template-select" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text3)', marginBottom: '6px' }}>Load Configuration Template:</label>
+                        <select 
+                          id="template-select"
+                          value={selectedTemplate} 
+                          onChange={(e) => handleLoadTemplate(e.target.value)}
+                          className="template-select-box"
+                          style={{ width: '100%', padding: '10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)' }}
+                        >
+                          <option value="">-- Choose Template to Auto-Fill --</option>
+                          {electionTemplates.map(t => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button className="btn-action-sm" onClick={handleSaveAsTemplate} style={{ height: '38px', padding: '0 16px', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '18px' }}>
+                        <IconDeviceFloppy size={18} /> Save Active Config as Template
+                      </button>
                     </div>
-                    <div className="field">
-                      <label htmlFor="new-el-type">Access Type</label>
-                      <select id="new-el-type" value={newElType} onChange={(e) => setNewElType(e.target.value)}>
-                        <option value="Public">Public (Visible to all eligible)</option>
-                        <option value="Private">Private (Requires Access Code)</option>
-                      </select>
-                    </div>
-                  </div>
 
-                  <div className="form-row-grid">
-                    <div className="field">
-                      <label htmlFor="new-el-desc">Manifesto/Description</label>
-                      <textarea 
-                        id="new-el-desc"
-                        rows={2}
-                        placeholder="Brief summary of the election purpose..."
-                        value={newElDesc}
-                        onChange={(e) => setNewElDesc(e.target.value)}
-                      />
-                    </div>
-                    {newElType === 'Private' && (
+                    <div className="form-row-grid">
                       <div className="field">
-                        <label htmlFor="new-el-access-code">Access Code</label>
+                        <label htmlFor="new-el-name">Election Name <span style={{ color: 'var(--red)' }}>*</span></label>
+                        <input 
+                          id="new-el-name"
+                          type="text" 
+                          placeholder="e.g. Student Council CR Poll"
+                          value={newElName}
+                          onChange={(e) => setNewElName(e.target.value)}
+                          aria-required="true"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row-grid">
+                      <div className="field">
+                        <label htmlFor="new-el-desc">Description</label>
+                        <textarea 
+                          id="new-el-desc"
+                          rows={3}
+                          placeholder="Brief summary of the election purpose..."
+                          value={newElDesc}
+                          onChange={(e) => setNewElDesc(e.target.value)}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="new-el-access-code">Access Code (Leave blank for Public elections)</label>
                         <input 
                           id="new-el-access-code"
                           type="text" 
@@ -2544,46 +2998,388 @@ export default function Dashboard() {
                           onChange={(e) => setNewElAccessCode(e.target.value)}
                         />
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  <div className="form-row-grid-3">
-                    <div className="field">
-                      <label htmlFor="new-el-branch">Eligible Branch</label>
-                      <input id="new-el-branch" type="text" value={newElBranch} onChange={(e) => setNewElBranch(e.target.value)} placeholder="e.g. CSE, ECE, ALL" />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                      <button 
+                        className="btn-create-election" 
+                        onClick={() => {
+                          if (!newElName.trim()) {
+                            alert('Election Name is required.');
+                            return;
+                          }
+                          setWizardStep(2);
+                        }}
+                        style={{ width: 'auto', padding: '10px 24px' }}
+                      >
+                        Next: Eligibility Configuration →
+                      </button>
                     </div>
+                  </div>
+                )}
+
+                {/* STEP 2: Eligibility Configuration */}
+                {wizardStep === 2 && (
+                  <div className="wizard-step-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div className="field">
-                      <label htmlFor="new-el-range">Roll Range Limits</label>
-                      <input id="new-el-range" type="text" value={newElRange} onChange={(e) => setNewElRange(e.target.value)} placeholder="e.g. 1-64" />
-                    </div>
-                    <div className="field checkbox-field">
-                      <label className="checkbox-label" htmlFor="new-el-laterals">
-                        <input 
-                          id="new-el-laterals"
-                          type="checkbox" 
-                          checked={newElLaterals} 
-                          onChange={(e) => setNewElLaterals(e.target.checked)} 
-                        />
-                        Include Lateral Entry Categories
+                      <label htmlFor="new-el-patterns" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        Eligible Voter ID Patterns <span style={{ color: 'var(--red)' }}>*</span>
+                        <span className="tooltip-trigger" title="Enter roll number patterns separated by commas. Use underscores (_) at the end for the variable length. E.g. 25L35A44__ allows 2-digit roll ranges like 25L35A4401 to 25L35A4464." style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.05)', borderRadius: '50%', width: '16px', height: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: 'var(--text3)' }}>?</span>
                       </label>
+                      <input 
+                        id="new-el-patterns"
+                        type="text" 
+                        placeholder="e.g. 25L35A44__, 24L31A44__"
+                        value={newElPatterns}
+                        onChange={(e) => updatePatternsAndRanges(e.target.value)}
+                      />
+                      <span style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>
+                        Separate multiple patterns using commas. Underscores represent variable characters.
+                      </span>
+                    </div>
+
+                    {/* Dynamic Range Configuration Cards */}
+                    <div className="dynamic-range-grid" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      {newElPatterns.split(',').map(p => p.trim()).filter(p => p.length > 0).map((pat, index) => {
+                        const info = parsePattern(pat);
+                        const range = newElRanges[pat] || {};
+                        
+                        if (!info.valid) {
+                          return (
+                            <div key={index} style={{ padding: '16px', background: 'rgba(239,83,80,0.05)', border: '1px solid rgba(239,83,80,0.2)', borderRadius: '8px', color: '#ef5350', fontSize: '13px' }}>
+                              ⚠️ Pattern <strong>"{pat}"</strong> is invalid: {info.error}
+                            </div>
+                          );
+                        }
+
+                        let estimatedCount = 0;
+                        if (range.from && range.to && range.from.length === info.varLength && range.to.length === info.varLength) {
+                          if (range.mode === 'numeric') {
+                            estimatedCount = Math.max(0, parseInt(range.to) - parseInt(range.from) + 1);
+                          } else {
+                            const fromVal = base36ToInt(range.from);
+                            const toVal = base36ToInt(range.to);
+                            if (fromVal !== -1 && toVal !== -1) {
+                              estimatedCount = Math.max(0, toVal - fromVal + 1);
+                            }
+                          }
+                        }
+
+                        return (
+                          <div key={pat} style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                              <strong style={{ fontSize: '14px', color: 'var(--teal)' }}>Range Configuration Card #{index + 1}</strong>
+                              <span style={{ fontSize: '12px', color: 'var(--text3)' }}>Pattern: <code style={{ color: 'var(--gold)' }}>{pat}</code></span>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px' }}>
+                              <div className="field">
+                                <label>Range Mode</label>
+                                <select 
+                                  value={range.mode || 'numeric'} 
+                                  onChange={(e) => handleRangeChange(pat, 'mode', e.target.value)}
+                                  style={{ width: '100%', padding: '10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)' }}
+                                >
+                                  <option value="numeric">Numeric Mode (e.g. 01 → 64)</option>
+                                  <option value="alphanumeric">Alphanumeric Mode (e.g. A0 → C7)</option>
+                                </select>
+                              </div>
+
+                              <div className="field">
+                                <label>From Value ({info.varLength} chars)</label>
+                                <input 
+                                  type="text" 
+                                  maxLength={info.varLength}
+                                  placeholder={'0'.repeat(info.varLength - 1) + '1'}
+                                  value={range.from || ''} 
+                                  onChange={(e) => handleRangeChange(pat, 'from', e.target.value)}
+                                />
+                              </div>
+
+                              <div className="field">
+                                <label>To Value ({info.varLength} chars)</label>
+                                <input 
+                                  type="text" 
+                                  maxLength={info.varLength}
+                                  placeholder={'9'.repeat(info.varLength)}
+                                  value={range.to || ''} 
+                                  onChange={(e) => handleRangeChange(pat, 'to', e.target.value)}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Live Preview Inside Card */}
+                            <div style={{ background: 'rgba(74, 157, 143, 0.04)', border: '1px solid rgba(74, 157, 143, 0.15)', borderRadius: '8px', padding: '12px', fontSize: '12.5px', color: 'var(--text2)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
+                              <div>Prefix: <strong style={{ color: 'var(--text)' }}>{info.prefix}</strong></div>
+                              <div>Variable length: <strong style={{ color: 'var(--text)' }}>{info.varLength}</strong></div>
+                              <div>Range: <strong style={{ color: 'var(--text)' }}>{range.from || '?'} → {range.to || '?'}</strong></div>
+                              <div>Estimated voters: <strong style={{ color: 'var(--teal)', fontSize: '13.5px' }}>{isNaN(estimatedCount) ? 0 : estimatedCount}</strong></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
+                      <button className="btn-action-sm secondary" onClick={() => setWizardStep(1)} style={{ height: '38px', padding: '0 20px' }}>
+                        ← Back
+                      </button>
+                      <button 
+                        className="btn-create-election" 
+                        onClick={() => {
+                          const pats = newElPatterns.split(',').map(p => p.trim()).filter(p => p.length > 0);
+                          if (pats.length === 0) {
+                            alert('At least one Eligible Voter ID Pattern is required.');
+                            return;
+                          }
+                          for (const pat of pats) {
+                            const info = parsePattern(pat);
+                            if (!info.valid) {
+                              alert(`Invalid pattern "${pat}": ${info.error}`);
+                              return;
+                            }
+                            const range = newElRanges[pat];
+                            if (!range || !range.from || !range.to) {
+                              alert(`Incomplete range configurations for pattern "${pat}".`);
+                              return;
+                            }
+                          }
+                          setWizardStep(3);
+                        }}
+                        style={{ width: 'auto', padding: '10px 24px' }}
+                      >
+                        Next: Election Schedule →
+                      </button>
                     </div>
                   </div>
+                )}
 
-                  <div className="form-row-grid">
-                    <div className="field">
-                      <label htmlFor="new-el-start">Starts Date</label>
-                      <input id="new-el-start" type="date" value={newElStart} onChange={(e) => setNewElStart(e.target.value)} />
+                {/* STEP 3: Election Schedule */}
+                {wizardStep === 3 && (
+                  <div className="wizard-step-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div className="form-row-grid">
+                      <div className="field">
+                        <label htmlFor="new-el-start">Start Date &amp; Time <span style={{ color: 'var(--red)' }}>*</span></label>
+                        <input 
+                          id="new-el-start" 
+                          type="datetime-local" 
+                          value={newElStart} 
+                          onChange={(e) => setNewElStart(e.target.value)} 
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="new-el-end">End Date &amp; Time <span style={{ color: 'var(--red)' }}>*</span></label>
+                        <input 
+                          id="new-el-end" 
+                          type="datetime-local" 
+                          value={newElEnd} 
+                          onChange={(e) => setNewElEnd(e.target.value)} 
+                        />
+                      </div>
                     </div>
-                    <div className="field">
-                      <label htmlFor="new-el-end">Ends Timestamp Limit</label>
-                      <input id="new-el-end" type="text" value={newElEnd} onChange={(e) => setNewElEnd(e.target.value)} placeholder="YYYY-MM-DD HH:MM" />
+
+                    {newElStart && newElEnd && (
+                      <div style={{ background: 'rgba(212,168,67,0.06)', border: '1px solid rgba(212,168,67,0.2)', borderRadius: '8px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text3)', fontWeight: '600' }}>TOTAL ELECTION DURATION</span>
+                          <strong style={{ fontSize: '18px', color: 'var(--gold)', fontFamily: 'IBM Plex Mono, monospace' }}>{calculateDuration(newElStart, newElEnd)}</strong>
+                        </div>
+                        <span style={{ fontSize: '24px' }}>⏳</span>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
+                      <button className="btn-action-sm secondary" onClick={() => setWizardStep(2)} style={{ height: '38px', padding: '0 20px' }}>
+                        ← Back
+                      </button>
+                      <button 
+                        className="btn-create-election" 
+                        onClick={() => {
+                          const start = new Date(newElStart);
+                          const end = new Date(newElEnd);
+                          const now = new Date();
+                          if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                            alert('Please enter valid start and end dates.');
+                            return;
+                          }
+                          if (start < now - 60000) {
+                            alert('Start date and time cannot be in the past.');
+                            return;
+                          }
+                          if (end <= start) {
+                            alert('End date must be after start date.');
+                            return;
+                          }
+                          setWizardStep(4);
+                        }}
+                        style={{ width: 'auto', padding: '10px 24px' }}
+                      >
+                        Next: Eligibility Upload →
+                      </button>
                     </div>
                   </div>
+                )}
 
-                  <button type="submit" className="btn-create-election" disabled={isSubmitting}>
-                    {isSubmitting ? 'Initializing Registry...' : 'Initialize Election Registry'}
-                  </button>
-                </form>
+                {/* STEP 4: Eligibility Upload */}
+                {wizardStep === 4 && (
+                  <div className="wizard-step-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text2)' }}>
+                      (Optional) Drag &amp; drop a whitelisted/blacklisted roster to override pattern rules. If skipped, voter validation uses dynamic prefix matching only.
+                    </p>
+
+                    {/* Drag & Drop Area */}
+                    <div 
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      style={{
+                        border: dragOver ? '2px dashed var(--teal)' : '2px dashed var(--border)',
+                        background: dragOver ? 'rgba(74, 157, 143, 0.05)' : 'rgba(255,255,255,0.01)',
+                        padding: '40px 20px',
+                        borderRadius: '12px',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '12px'
+                      }}
+                      onClick={() => document.getElementById('wizard-file-input').click()}
+                    >
+                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '50%' }}>
+                        <IconInbox size={32} style={{ color: dragOver ? 'var(--teal)' : 'var(--text3)' }} />
+                      </div>
+                      <div>
+                        <strong style={{ display: 'block', fontSize: '14px', color: 'var(--text)' }}>Drag &amp; drop spreadsheet file here</strong>
+                        <span style={{ fontSize: '12px', color: 'var(--text3)' }}>Accepts Excel (.xlsx, .xls) and CSV (.csv) formats</span>
+                      </div>
+                      <button type="button" className="btn-action-sm" style={{ pointerEvents: 'none' }}>
+                        Browse Local Files
+                      </button>
+                      <input 
+                        id="wizard-file-input"
+                        type="file" 
+                        accept=".xlsx,.xls,.csv" 
+                        onChange={handleWizardFileUpload}
+                        style={{ display: 'none' }}
+                      />
+                    </div>
+
+                    {/* Roster Upload Validation Summary */}
+                    {uploadReport && (
+                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
+                        <h4 style={{ margin: '0 0 12px 0', fontSize: '11px', color: 'var(--gold)', letterSpacing: '1px' }}>UPLOAD VALIDATION REPORT:</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>File Name</span>
+                            <strong style={{ fontSize: '12px', color: 'var(--text)' }}>{uploadReport.fileName}</strong>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>Total Processed</span>
+                            <strong style={{ fontSize: '16px', color: 'var(--text)' }}>{uploadReport.totalRecords}</strong>
+                          </div>
+                          <div style={{ background: 'rgba(74, 157, 143, 0.1)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>Eligible (Col A)</span>
+                            <strong style={{ fontSize: '16px', color: 'var(--teal)' }}>{uploadReport.eligibleRecords}</strong>
+                          </div>
+                          <div style={{ background: 'rgba(239, 83, 80, 0.1)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>Blacklisted (Col B)</span>
+                            <strong style={{ fontSize: '16px', color: '#ef5350' }}>{uploadReport.blacklistedRecords}</strong>
+                          </div>
+                          <div style={{ background: 'rgba(239, 83, 80, 0.15)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>Rejected Rows</span>
+                            <strong style={{ fontSize: '16px', color: '#ff6b6b' }}>{uploadReport.invalidRecords}</strong>
+                          </div>
+                        </div>
+
+                        {uploadReport.errors.length > 0 && (
+                          <div style={{ background: 'rgba(239,83,80,0.04)', border: '1px solid rgba(239,83,80,0.15)', borderRadius: '6px', padding: '12px', maxHeight: '120px', overflowY: 'auto' }}>
+                            <strong style={{ display: 'block', fontSize: '11px', color: '#ef5350', marginBottom: '6px' }}>REJECTED RECORDS LOG PREVIEW:</strong>
+                            {uploadReport.errors.slice(0, 5).map((err, idx) => (
+                              <div key={idx} style={{ fontSize: '11px', color: 'var(--text3)', margin: '2px 0' }}>• {err}</div>
+                            ))}
+                            {uploadReport.errors.length > 5 && (
+                              <div style={{ fontSize: '11.5px', color: 'var(--text3)', fontStyle: 'italic', marginTop: '4px' }}>...and {uploadReport.errors.length - 5} more records rejected.</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
+                      <button className="btn-action-sm secondary" onClick={() => setWizardStep(3)} style={{ height: '38px', padding: '0 20px' }}>
+                        ← Back
+                      </button>
+                      <button className="btn-create-election" onClick={() => setWizardStep(5)} style={{ width: 'auto', padding: '10px 24px' }}>
+                        Next: Review &amp; Create →
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* STEP 5: Review & Create */}
+                {wizardStep === 5 && (
+                  <div className="wizard-step-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+                      <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
+                        <h3 style={{ fontSize: '13.5px', color: 'var(--teal)', borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Election Information</h3>
+                        <p style={{ fontSize: '13px', margin: '6px 0' }}>Name: <strong>{newElName}</strong></p>
+                        <p style={{ fontSize: '13px', margin: '6px 0' }}>Description: <span style={{ color: 'var(--text2)' }}>{newElDesc || 'None'}</span></p>
+                        <p style={{ fontSize: '13px', margin: '6px 0' }}>Access Code: <strong>{newElAccessCode ? `Private (Code: "${newElAccessCode}")` : 'Public'}</strong></p>
+                      </div>
+
+                      <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
+                        <h3 style={{ fontSize: '13.5px', color: 'var(--teal)', borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Schedule &amp; Window</h3>
+                        <p style={{ fontSize: '13px', margin: '6px 0' }}>Starts: <span style={{ color: 'var(--text2)' }}>{new Date(newElStart).toLocaleString()}</span></p>
+                        <p style={{ fontSize: '13px', margin: '6px 0' }}>Ends: <span style={{ color: 'var(--text2)' }}>{new Date(newElEnd).toLocaleString()}</span></p>
+                        <p style={{ fontSize: '13px', margin: '6px 0' }}>Duration: <strong style={{ color: 'var(--gold)' }}>{calculateDuration(newElStart, newElEnd)}</strong></p>
+                      </div>
+
+                      <div style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
+                        <h3 style={{ fontSize: '13.5px', color: 'var(--teal)', borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Eligibility Patterns &amp; Ranges</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          {newElPatterns.split(',').map(p => p.trim()).filter(p => p.length > 0).map((pat, idx) => {
+                            const range = newElRanges[pat] || {};
+                            return (
+                              <div key={idx} style={{ fontSize: '12.5px', color: 'var(--text2)', display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(255,255,255,0.03)', paddingBottom: '6px' }}>
+                                <span>Pattern: <code>{pat}</code> ({range.mode || 'numeric'})</span>
+                                <strong>Range: {range.from} → {range.to}</strong>
+                              </div>
+                            );
+                          })}
+                          
+                          {uploadReport && (
+                            <div style={{ paddingTop: '10px', marginTop: '6px', display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
+                              <span>Uploaded whitelist overrides (Col A):</span>
+                              <strong style={{ color: 'var(--teal)' }}>{uploadReport.eligibleRecords} Roll Numbers</strong>
+                            </div>
+                          )}
+                          {uploadReport && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
+                              <span>Uploaded blacklist exclusions (Col B):</span>
+                              <strong style={{ color: '#ef5350' }}>{uploadReport.blacklistedRecords} Roll Numbers</strong>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
+                      <button className="btn-action-sm secondary" onClick={() => setWizardStep(4)} style={{ height: '38px', padding: '0 20px' }}>
+                        ← Back
+                      </button>
+                      <button 
+                        className="btn-create-election" 
+                        onClick={() => handleCreateElection()}
+                        disabled={isSubmitting}
+                        style={{ width: 'auto', padding: '10px 32px' }}
+                      >
+                        {isSubmitting ? 'Deploying Registry...' : '✓ Create & Launch Election'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Excel Eligibility Overrides Ingestion */}
@@ -2870,8 +3666,9 @@ export default function Dashboard() {
                     />
                   </div>
                   <div className="field">
-                    <label htmlFor="cand-dept">Department</label>
+                    <label htmlFor="cand-dept">Department <span style={{ color: 'var(--text3)', fontWeight: 400, fontSize: '11px' }}>(Optional)</span></label>
                     <select id="cand-dept" value={candDept} onChange={(e) => setCandDept(e.target.value)} disabled={isCandFormLocked}>
+                      <option value="">— None —</option>
                       <option value="CSE">CSE (Computer Science)</option>
                       <option value="ECE">ECE (Electronics)</option>
                       <option value="ME">ME (Mechanical)</option>
@@ -2883,45 +3680,34 @@ export default function Dashboard() {
 
                 <div className="form-row-grid">
                   <div className="field">
-                    <label htmlFor="cand-roll">Student Roll Number</label>
-                    <input 
-                      id="cand-roll"
-                      type="text" 
-                      placeholder="e.g. 21CS042" 
-                      value={candRoll} 
-                      onChange={(e) => setCandRoll(e.target.value)} 
-                      aria-required="true"
-                      disabled={isCandFormLocked}
-                    />
-                  </div>
-                  <div className="field">
                     <label htmlFor="cand-election-id">Assign to Election</label>
                     <select id="cand-election-id" value={candElectionId} onChange={(e) => setCandElectionId(e.target.value)} disabled={isCandFormLocked}>
+                      <option value="" disabled>— Select an Election —</option>
                       {elections.filter(el => el.status !== 'Archived').map(el => (
-                        <option key={el.id} value={el.id}>{el.name} ({el.id})</option>
+                        <option key={el.id} value={el.id}>{el.name}</option>
                       ))}
                     </select>
                   </div>
                 </div>
 
                 <div className="field">
-                  <label htmlFor="cand-manifesto">Manifesto Quote</label>
+                  <label htmlFor="cand-description">Description</label>
                   <textarea 
-                    id="cand-manifesto"
+                    id="cand-description"
                     rows={2} 
-                    placeholder="Short manifesto quote or summary..." 
-                    value={candManifesto} 
-                    onChange={(e) => setCandManifesto(e.target.value)} 
+                    placeholder="Short description or summary..." 
+                    value={candDescription} 
+                    onChange={(e) => setCandDescription(e.target.value)} 
                     disabled={isCandFormLocked}
                   />
                 </div>
 
                 <div className="form-row-grid">
                   <div className="field">
-                    <label>Candidate Profile Photo</label>
+                    <label>Candidate Profile Photo <span style={{ color: 'var(--text3)', fontWeight: 400, fontSize: '11px' }}>(Optional)</span></label>
                     <div className="mock-photo-upload-box">
                       <div className="mock-upload-icon"><IconCamera size={24} /></div>
-                      <span>Simulate Photo Upload Slot (Automatic Aspect Crop 1:1)</span>
+                      <span>Photo Upload Slot (Optional — 1:1 Aspect)</span>
                     </div>
                   </div>
                 </div>
@@ -2945,10 +3731,9 @@ export default function Dashboard() {
                 <thead>
                   <tr>
                     <th>NAME</th>
-                    <th>ROLL NUMBER</th>
                     <th>DEPT</th>
                     <th>ASSIGNED ELECTION</th>
-                    <th>MANIFESTO</th>
+                    <th>DESCRIPTION</th>
                     <th>STATUS</th>
                     <th style={{ textAlign: 'right' }}>ACTIONS</th>
                   </tr>
@@ -2960,10 +3745,9 @@ export default function Dashboard() {
                     return (
                       <tr key={c.id}>
                         <td data-label="Name"><strong>{highlightMatch(c.name, globalSearch)}</strong></td>
-                        <td data-label="Roll Number" className="user-roll">{highlightMatch(c.rollNo, globalSearch)}</td>
                         <td data-label="Dept">{highlightMatch(c.dept, globalSearch)}</td>
                         <td data-label="Assigned Election"><span className="badge-role gold">{el ? el.name : 'Unknown Election'}</span></td>
-                        <td data-label="Manifesto" style={{ fontSize: '11px', color: 'var(--text2)', maxWidth: '280px' }}>{c.manifesto}</td>
+                        <td data-label="Description" style={{ fontSize: '11px', color: 'var(--text2)', maxWidth: '280px' }}>{c.description}</td>
                         <td data-label="Status">
                           <span style={{
                             padding: '4px 8px',
@@ -5011,8 +5795,8 @@ export default function Dashboard() {
                     <div key={c.id} className="preview-candidate-card">
                       <div className="cand-avatar">{c.name.split(' ').map(x=>x[0]).join('')}</div>
                       <h4>{c.name}</h4>
-                      <span className="dept">{c.dept} · Roll: {c.rollNo}</span>
-                      <p className="manifesto">"{c.manifesto}"</p>
+                      <span className="dept">{c.dept}</span>
+                      <p className="manifesto">"{c.description}"</p>
                       <button className="preview-select-btn" onClick={() => alert('Simulator: Candidate card selection highlighted.')}>Select Candidate</button>
                     </div>
                   ))}
@@ -5069,7 +5853,7 @@ export default function Dashboard() {
             <div className="inspection-modal-body">
               <div className="inspection-overview-header">
                 <h2>{inspectedElection.name}</h2>
-                <p>Election ID: <strong>{inspectedElection.id}</strong> | Type: <strong>{inspectedElection.type}</strong></p>
+                <p>Election ID: <strong>{inspectedElection.id}</strong></p>
                 <div className="turnout-ratios-summary">
                   <div className="ratio-tile"><span>Registered voters:</span><strong>{inspectedElection.voters}</strong></div>
                   <div className="ratio-tile"><span>Votes recorded:</span><strong>{inspectedElection.votesCast}</strong></div>
@@ -5087,8 +5871,8 @@ export default function Dashboard() {
                         <div className="avatar-circle">{c.name.split(' ').map(x=>x[0]).join('')}</div>
                         <div className="meta">
                           <span className="n"><strong>{c.name}</strong></span>
-                          <span className="d">{c.dept} · Roll: {c.rollNo}</span>
-                          <p className="manifesto">"{c.manifesto}"</p>
+                          <span className="d">{c.dept}</span>
+                          <p className="manifesto">"{c.description}"</p>
                         </div>
                       </div>
                     ))}

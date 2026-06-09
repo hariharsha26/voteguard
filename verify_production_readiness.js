@@ -181,7 +181,6 @@ async function runVerification() {
       .insert({
         election_name: 'Mock Verification Election',
         election_code: 'MOCK_VERIFY_7',
-        election_type: 'Private',
         status: 'Active',
         start_time: new Date(),
         end_time: new Date(Date.now() + 3600000)

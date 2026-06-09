@@ -3,6 +3,14 @@ import LogoMark from './LogoMark';
 import ThemeToggle from './ThemeToggle';
 import '../styles/VoterNavigation.css';
 
+const formatDisplayName = (name) => {
+  if (!name) return '';
+  const words = name.trim().split(/\s+/);
+  if (words.length === 0) return '';
+  const display = words.slice(0, 2).join(' ');
+  return display.length > 20 ? display.substring(0, 18) + '...' : display;
+};
+
 export default function VoterNavigation({
   activeTab,
   setActiveTab,
@@ -273,7 +281,7 @@ export default function VoterNavigation({
                 </div>
               )}
               <div className="profile-info-text">
-                <span className="profile-name">{voter.name}</span>
+                <span className="profile-name">{formatDisplayName(voter.name)}</span>
                 <span className="profile-role">Voter Account</span>
               </div>
             </div>

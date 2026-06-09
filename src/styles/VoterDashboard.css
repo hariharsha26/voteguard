@@ -2366,6 +2366,100 @@
   transform: translateY(-1px);
 }
 
+/* Standardized Profile Section Buttons */
+.profile-btn-main,
+.profile-btn-secondary,
+.profile-btn-ghost,
+.profile-btn-danger {
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.profile-btn-main {
+  background: var(--teal);
+  color: white;
+  border: none;
+}
+
+.profile-btn-main:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.profile-btn-main:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.profile-btn-secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border2);
+}
+
+.profile-btn-secondary:hover {
+  color: var(--teal);
+  border-color: var(--teal3);
+  transform: translateY(-1px);
+}
+
+.profile-btn-ghost {
+  background: transparent;
+  color: var(--text3);
+  border: 1px solid var(--border);
+}
+
+.profile-btn-ghost:hover {
+  border-color: var(--border2);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.profile-btn-danger {
+  background: transparent;
+  color: var(--red);
+  border: 1px solid var(--red3);
+}
+
+.profile-btn-danger:hover {
+  background: var(--red2);
+  border-color: var(--red);
+  transform: translateY(-1px);
+}
+
+.profile-photo-actions-wrap {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.profile-photo-buttons-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .profile-photo-actions-wrap {
+    align-items: center;
+  }
+}
+
 /* Security settings list */
 .security-settings-list {
   display: flex;
@@ -5401,6 +5495,20 @@
   margin-bottom: 20px;
 }
 
+/* Refresh button animation */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
 
+.btn-refresh-elections:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
 
-
+@media (max-width: 600px) {
+  .btn-refresh-elections {
+    padding: 8px 14px !important;
+    font-size: 12px !important;
+  }
+}
