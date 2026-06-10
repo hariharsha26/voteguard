@@ -122,6 +122,9 @@ export default function VoterDashboard() {
   // 3. Elections Database (live synced)
   const [elections, setElections] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(() => navigator.onLine ? 'POLLING' : 'OFFLINE'); // 'CONNECTED' | 'POLLING' | 'OFFLINE'
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [visibilityReport, setVisibilityReport] = useState([]);
   const voterRollRef = useRef('');
   const realtimeChannelRef = useRef(null);
   const pollingIntervalRef = useRef(null);
@@ -174,6 +177,7 @@ export default function VoterDashboard() {
   const [verificationResult, setVerificationResult] = useState(null);
   const [verificationError, setVerificationError] = useState(null);
   const [showCryptoDetails, setShowCryptoDetails] = useState(false);
+  const [showDiagnosticsPanel, setShowDiagnosticsPanel] = useState(false);
 
   // Real Logs / Activity Database is loaded from audit_logs table into secEvents
 
@@ -292,6 +296,37 @@ export default function VoterDashboard() {
       });
 
       setElections(mappedElections);
+      setLastUpdated(new Date().toLocaleTimeString());
+
+      // Fetch Visibility Diagnostics Report (Dev Mode only)
+      let reportData = [];
+      if (import.meta.env.VITE_APP_ENV !== 'production') {
+        const { data, error: reportError } = await supabase.rpc('get_election_visibility_report');
+        if (!reportError && data) {
+          reportData = data;
+          setVisibilityReport(data);
+        } else {
+          console.error('[Visibility Diagnostics] Failed to fetch report:', reportError);
+        }
+      }
+
+      // Tracing logs for debugging election flow
+      const rawReturned = dbElections?.length || 0;
+      const afterStatusFilter = dbElections?.filter(el => el.status !== 'DRAFT').length || 0;
+      const afterEligibilityFilter = mappedElections.filter(el => {
+        return el.isExplicitEligible !== null
+          ? el.isExplicitEligible
+          : validateVoterEligibility(userRoll, el.eligibilityRules);
+      }).length;
+
+      console.log('[Election Fetch Validation] TRACE FLOW:', {
+        'Database Returned (Raw Query)': rawReturned,
+        'After Status Filter (status <> DRAFT)': afterStatusFilter,
+        'After Eligibility Filter (matches prefix/range/whitelist)': afterEligibilityFilter,
+        'Elections after mapping': mappedElections.length,
+        'Diagnostics database count': reportData.length,
+      });
+
       console.log(`[VoterDashboard] Loaded ${mappedElections.length} election(s) for voter ${userRoll}`);
     } catch (err) {
       console.error('Failed to fetch voter dashboard data:', err);
@@ -446,8 +481,22 @@ export default function VoterDashboard() {
           triggerToast('Election results have been updated');
         }
       })
-      .subscribe((status) => {
+      .on('broadcast', { event: 'refresh-elections' }, () => {
+        console.log('[Realtime Broadcast] refresh-elections received');
+        const roll = voterRollRef.current;
+        if (roll && isAuthenticatedRef.current) {
+          fetchVoterData(roll);
+          triggerToast('Election registry refreshed automatically!');
+        }
+      })
+      .subscribe((status, err) => {
         console.log('[Realtime] Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          setSyncStatus('CONNECTED');
+        } else {
+          console.warn('[Realtime] Subscription error or closed, status:', status, err);
+          setSyncStatus('POLLING');
+        }
       });
 
     realtimeChannelRef.current = channel;
@@ -460,10 +509,49 @@ export default function VoterDashboard() {
     };
   }, [fetchVoterData]);
 
-  // ── Auto-polling fallback (30s) with Page Visibility awareness ──
+  // ── Parallel Broadcast Sync Listeners (BroadcastChannel & Local Storage fallback) ──
+  useEffect(() => {
+    const bc = new BroadcastChannel('voteguard-refresh-channel');
+    bc.onmessage = (event) => {
+      if (event.data?.event === 'refresh-elections') {
+        console.log('[BroadcastChannel] refresh-elections event received');
+        const roll = voterRollRef.current;
+        if (roll && isAuthenticatedRef.current) {
+          fetchVoterData(roll);
+          triggerToast('Election data refreshed!');
+        }
+      }
+    };
+
+    const handleStorageChange = (event) => {
+      if (event.key === 'voteguard_refresh_trigger') {
+        console.log('[Storage Event] refresh-elections trigger received');
+        const roll = voterRollRef.current;
+        if (roll && isAuthenticatedRef.current) {
+          fetchVoterData(roll);
+          triggerToast('Election data refreshed!');
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      bc.close();
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [fetchVoterData]);
+
+  // ── Auto-polling fallback with Page Visibility & Sync Status awareness ──
   useEffect(() => {
     const startPolling = () => {
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+      // Only set interval if we are NOT connected via Realtime
+      if (syncStatus === 'CONNECTED') {
+        console.log('[Polling] Realtime is connected. Polling is disabled to save resources.');
+        return;
+      }
+
+      console.log(`[Polling] Realtime disconnected. Starting 30s polling fallback. Status: ${syncStatus}`);
       pollingIntervalRef.current = setInterval(() => {
         const roll = voterRollRef.current;
         if (roll && isAuthenticatedRef.current && !document.hidden) {
@@ -484,7 +572,6 @@ export default function VoterDashboard() {
       if (document.hidden) {
         stopPolling();
       } else {
-        // Immediate refresh when tab becomes visible again
         const roll = voterRollRef.current;
         if (roll && isAuthenticatedRef.current) {
           fetchVoterData(roll);
@@ -493,14 +580,31 @@ export default function VoterDashboard() {
       }
     };
 
+    const handleOnline = () => {
+      console.log('[Network] Browser went online.');
+      if (syncStatus === 'OFFLINE') {
+        setSyncStatus('POLLING');
+      }
+    };
+
+    const handleOffline = () => {
+      console.warn('[Network] Browser went offline.');
+      setSyncStatus('OFFLINE');
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     startPolling();
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       stopPolling();
     };
-  }, [fetchVoterData]);
+  }, [fetchVoterData, syncStatus]);
 
 
   const handleFileChange = (e) => {
@@ -893,10 +997,10 @@ export default function VoterDashboard() {
   };
 
   // Toast notifier utility
-  const triggerToast = (msg) => {
+  function triggerToast(msg) {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
-  };
+  }
 
   // Auto-logout trigger (for inactivity/session verification failures)
   const handleAutoLogout = useCallback(async () => {
@@ -1132,14 +1236,10 @@ export default function VoterDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWizardElection, showComparisonModal, showHelpPopover]);
 
-  // Scroll lock when wizard modal is open
+  // Scroll lock when wizard modal is open (disabled because wizard is rendered inline, preventing scrolling of the page)
   useEffect(() => {
-    if (activeWizardElection) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
+    // Scroll lock disabled to fix the scrolling issue on Voter Elections page
+    // document.body.style.overflow = 'hidden';
   }, [activeWizardElection]);
 
   // Focus trapping in wizard modal for accessibility
@@ -1678,6 +1778,8 @@ cryptographically sealed on the ledger.
     );
   }
 
+  console.log('[VoterDashboard Render Trace] Elections Rendered on Screen:', elections.length);
+
   return (
     <div className={`voter-dashboard-container ${isLargeText ? 'large-text' : ''} ${isHighContrast ? 'high-contrast' : ''}`}>
       {/* Session Timeout Warning Banner */}
@@ -1725,6 +1827,40 @@ cryptographically sealed on the ledger.
       />
 
       <main className="voter-main-viewport">
+        {/* Sync Health & Connection Monitor Status Bar */}
+        <div className="sync-health-status-bar" style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '8px 16px',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          fontSize: '12px',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{
+              display: 'inline-block',
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: syncStatus === 'CONNECTED' ? '#0ca678' : syncStatus === 'POLLING' ? '#f59f00' : '#fa5252',
+              boxShadow: syncStatus === 'CONNECTED' ? '0 0 8px #0ca678' : syncStatus === 'POLLING' ? '0 0 8px #f59f00' : '0 0 8px #fa5252'
+            }} />
+            <span style={{ fontWeight: '600', color: 'var(--text)' }}>
+              {syncStatus === 'CONNECTED' && '🟢 Realtime Connected'}
+              {syncStatus === 'POLLING' && '🟡 Polling Fallback Active'}
+              {syncStatus === 'OFFLINE' && '🔴 Sync Offline'}
+            </span>
+          </div>
+          {lastUpdated && (
+            <span style={{ color: 'var(--text3)', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+              Last Updated: {lastUpdated}
+            </span>
+          )}
+        </div>
         {/* Persistent Session Recovery Banner */}
         {sessionRecovery && !activeWizardElection && (
           <div className="session-recovery-banner">
@@ -1834,6 +1970,29 @@ cryptographically sealed on the ledger.
                       <p style={{ fontSize: '13px', color: 'var(--text3)', maxWidth: '280px', margin: 0, lineHeight: '1.5' }}>
                         There are currently no active polling windows. You will be notified when the election administrator launches a new session.
                       </p>
+                      {import.meta.env.VITE_APP_ENV !== 'production' && (
+                        <div className="empty-state-diagnostics" style={{
+                          marginTop: '20px',
+                          background: 'rgba(212, 168, 67, 0.05)',
+                          border: '1px solid rgba(212, 168, 67, 0.2)',
+                          borderRadius: '8px',
+                          padding: '16px',
+                          fontSize: '12px',
+                          textAlign: 'left',
+                          color: 'var(--text2)',
+                          width: '100%',
+                          maxWidth: '360px',
+                          boxSizing: 'border-box'
+                        }}>
+                          <strong style={{ color: 'var(--gold)', display: 'block', marginBottom: '6px', fontSize: '12.5px' }}>🛠️ Diagnostics (Dev Mode)</strong>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div>Total elections in DB: <strong>{visibilityReport.length}</strong></div>
+                            <div>Visible under RLS: <strong>{visibilityReport.filter(e => e.visible_under_rls).length}</strong></div>
+                            <div>Eligible elections: <strong>{visibilityReport.filter(e => e.visible_to_current_voter).length}</strong></div>
+                            <div>Voter Roll Number: <strong>{voter.rollNumber || 'Not loaded'}</strong></div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </SpotlightCard>
                 )}
@@ -2005,6 +2164,116 @@ cryptographically sealed on the ledger.
                 </SpotlightCard>
               </div>
             </div>
+
+            {/* COLLAPSIBLE DIAGNOSTICS & ELIGIBILITY AUDIT PANEL */}
+            {import.meta.env.VITE_APP_ENV !== 'production' && (
+              <SpotlightCard className="panel-spotlight-wrapper" spotlightColor="rgba(212, 168, 67, 0.08)" style={{ marginTop: '24px' }}>
+                <div className="sidebar-quick-card" style={{ padding: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowDiagnosticsPanel(!showDiagnosticsPanel)}>
+                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: '600', color: 'var(--text)' }}>
+                      🛠️ Visibility Diagnostics &amp; Eligibility Audit
+                    </h3>
+                    <button className="btn-toggle-crypto-specs" style={{ margin: 0, padding: '4px 12px' }}>
+                      {showDiagnosticsPanel ? "Hide Details" : "Review Details"}
+                    </button>
+                  </div>
+                  
+                  {showDiagnosticsPanel && (
+                    <div className="diagnostics-panel-content fade-in" style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                      <p style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '16px', lineHeight: '1.5' }}>
+                        This diagnostic panel runs a <code>SECURITY DEFINER</code> database audit query to trace why elections are visible or hidden for voter <strong>{voter.rollNumber || 'unknown'}</strong>. Use this to troubleshoot RLS and eligibility prefix/range rule problems.
+                      </p>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px', background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'uppercase', display: 'block' }}>Voter Roll</span>
+                          <strong style={{ fontSize: '13px', color: 'var(--text)' }}>{voter.rollNumber || 'Not Loaded'}</strong>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'uppercase', display: 'block' }}>Total Elections in DB</span>
+                          <strong style={{ fontSize: '13px', color: 'var(--text)' }}>{visibilityReport.length}</strong>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'uppercase', display: 'block' }}>Visible to Voter (RLS + Eligible)</span>
+                          <strong style={{ fontSize: '13px', color: 'var(--teal)' }}>{visibilityReport.filter(e => e.visible_to_current_voter).length}</strong>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'uppercase', display: 'block' }}>RLS Blocked / Hidden</span>
+                          <strong style={{ fontSize: '13px', color: 'var(--gold)' }}>{visibilityReport.filter(e => !e.visible_under_rls).length}</strong>
+                        </div>
+                      </div>
+
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text3)' }}>
+                              <th style={{ padding: '8px', fontWeight: '600' }}>Election Name / ID</th>
+                              <th style={{ padding: '8px', fontWeight: '600' }}>Status</th>
+                              <th style={{ padding: '8px', fontWeight: '600' }}>RLS Visibility</th>
+                              <th style={{ padding: '8px', fontWeight: '600' }}>Eligible Voters</th>
+                              <th style={{ padding: '8px', fontWeight: '600' }}>Voter Status &amp; Detail Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {visibilityReport.length === 0 ? (
+                              <tr>
+                                <td colSpan="5" style={{ padding: '16px', textAlign: 'center', color: 'var(--text3)' }}>No elections found in database.</td>
+                              </tr>
+                            ) : (
+                              visibilityReport.map((rep) => {
+                                const isElig = rep.visible_to_current_voter;
+                                const isRls = rep.visible_under_rls;
+                                return (
+                                  <tr key={rep.election_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'var(--text2)' }}>
+                                    <td style={{ padding: '10px 8px' }}>
+                                      <div style={{ fontWeight: '600', color: 'var(--text)' }}>{rep.election_name}</div>
+                                      <span style={{ fontSize: '10.5px', color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>{rep.election_id}</span>
+                                    </td>
+                                    <td style={{ padding: '10px 8px' }}>
+                                      <span style={{
+                                        fontSize: '9.5px',
+                                        fontWeight: '700',
+                                        padding: '2px 6px',
+                                        borderRadius: '4px',
+                                        background: rep.status === 'ACTIVE' ? 'rgba(74, 157, 143, 0.15)' : rep.status === 'DRAFT' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(212, 168, 67, 0.15)',
+                                        color: rep.status === 'ACTIVE' ? 'var(--teal)' : rep.status === 'DRAFT' ? 'var(--text3)' : 'var(--gold)'
+                                      }}>
+                                        {rep.status}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: '10px 8px' }}>
+                                      <span style={{ color: isRls ? 'var(--teal)' : 'var(--gold)', fontWeight: '500' }}>
+                                        {isRls ? '🟢 Passed (status <> DRAFT)' : '🔴 Blocked (DRAFT / No Session)'}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: '10px 8px', fontWeight: '500', color: 'var(--text)' }}>
+                                      {rep.eligible_voters_count}
+                                    </td>
+                                    <td style={{ padding: '10px 8px' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                        <span style={{
+                                          fontWeight: '600',
+                                          color: isElig ? 'var(--teal)' : 'var(--gold)'
+                                        }}>
+                                          {isElig ? '✓ Eligible' : '✗ Not Eligible'}
+                                        </span>
+                                        <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
+                                          {rep.visibility_reason}
+                                        </span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </SpotlightCard>
+            )}
           </div>
         )}
 
@@ -3112,7 +3381,7 @@ cryptographically sealed on the ledger.
               ) : (
                 // Listing View (Step 1)
                 <>
-                  <div className="page-intro-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
+                  <div className="page-intro-header">
                     <div>
                       <h1>My Elections Dashboard</h1>
                       <p>Review active institutional polls, check election lifecycles, and cast your secure cryptographically-audited ballot.</p>
@@ -3155,7 +3424,7 @@ cryptographically sealed on the ledger.
                   </div>
 
                   {/* Dashboard metrics summary (Step 1) */}
-                  <div className="voter-dashboard-metrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+                  <div className="voter-dashboard-metrics-grid">
                     <SpotlightCard className="metric-card welcome" spotlightColor="rgba(255, 255, 255, 0.06)" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <span className="metric-title" style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: '600' }}>Voter Identity</span>
                       <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '750', color: 'var(--text)' }}>{voter.name}</h3>
@@ -3196,14 +3465,14 @@ cryptographically sealed on the ledger.
                     </SpotlightCard>
                   </div>
 
-                  <div className="elections-split-layout" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '32px' }}>
+                  <div className="elections-split-layout">
                     
                     {/* Public & Private Elections Column */}
                     <div className="elections-public-column">
                       <div className="elections-section">
                         <h2 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '16px', color: 'var(--text)' }}>Public Elections</h2>
                         
-                        <div className="elections-grid-container" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
+                        <div className="elections-grid-container">
                           {elections.filter(e => e.type === 'Public').length === 0 ? (
                             <div className="empty-state-container">
                               <div className="empty-state-icon">
@@ -3211,6 +3480,29 @@ cryptographically sealed on the ledger.
                               </div>
                               <div className="empty-state-title">No Elections Available</div>
                               <p className="empty-state-desc">There are no active public elections registered on the platform at this time.</p>
+                              {import.meta.env.VITE_APP_ENV !== 'production' && (
+                                <div className="empty-state-diagnostics" style={{
+                                  marginTop: '20px',
+                                  background: 'rgba(212, 168, 67, 0.05)',
+                                  border: '1px solid rgba(212, 168, 67, 0.2)',
+                                  borderRadius: '8px',
+                                  padding: '16px',
+                                  fontSize: '12px',
+                                  textAlign: 'left',
+                                  color: 'var(--text2)',
+                                  width: '100%',
+                                  maxWidth: '360px',
+                                  boxSizing: 'border-box'
+                                }}>
+                                  <strong style={{ color: 'var(--gold)', display: 'block', marginBottom: '6px', fontSize: '12.5px' }}>🛠️ Diagnostics (Dev Mode)</strong>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div>Total elections in DB: <strong>{visibilityReport.length}</strong></div>
+                                    <div>Visible under RLS: <strong>{visibilityReport.filter(e => e.visible_under_rls).length}</strong></div>
+                                    <div>Eligible elections: <strong>{visibilityReport.filter(e => e.visible_to_current_voter).length}</strong></div>
+                                    <div>Voter Roll Number: <strong>{voter.rollNumber || 'Not loaded'}</strong></div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ) : elections.filter(e => e.type === 'Public').map((elec) => {
                             const statusInfo = getParticipationStatus(elec);
@@ -3265,14 +3557,37 @@ cryptographically sealed on the ledger.
                           Private Elections
                         </h2>
                         
-                        <div className="elections-grid-container" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
-                          {elections.filter(e => e.type === 'Private' && unlockedPrivateElectionIds.includes(e.id)).length === 0 ? (
+                        <div className="elections-grid-container">
+                           {elections.filter(e => e.type === 'Private' && unlockedPrivateElectionIds.includes(e.id)).length === 0 ? (
                             <div className="empty-state-container" style={{ background: 'var(--surface)', border: '1px dashed var(--border)', borderRadius: '8px', minHeight: '180px' }}>
                               <div className="empty-state-icon">
                                 <IconLock size={20} />
                               </div>
                               <div className="empty-state-title" style={{ fontSize: '14px' }}>No Private Elections Unlocked</div>
                               <p className="empty-state-desc">Enter an access code in the sidebar panel to unlock private election access.</p>
+                              {import.meta.env.VITE_APP_ENV !== 'production' && (
+                                <div className="empty-state-diagnostics" style={{
+                                  marginTop: '20px',
+                                  background: 'rgba(212, 168, 67, 0.05)',
+                                  border: '1px solid rgba(212, 168, 67, 0.2)',
+                                  borderRadius: '8px',
+                                  padding: '16px',
+                                  fontSize: '12px',
+                                  textAlign: 'left',
+                                  color: 'var(--text2)',
+                                  width: '100%',
+                                  maxWidth: '360px',
+                                  boxSizing: 'border-box'
+                                }}>
+                                  <strong style={{ color: 'var(--gold)', display: 'block', marginBottom: '6px', fontSize: '12.5px' }}>🛠️ Diagnostics (Dev Mode)</strong>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div>Total elections in DB: <strong>{visibilityReport.length}</strong></div>
+                                    <div>Visible under RLS: <strong>{visibilityReport.filter(e => e.visible_under_rls).length}</strong></div>
+                                    <div>Eligible elections: <strong>{visibilityReport.filter(e => e.visible_to_current_voter).length}</strong></div>
+                                    <div>Voter Roll Number: <strong>{voter.rollNumber || 'Not loaded'}</strong></div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ) : elections.filter(e => e.type === 'Private' && unlockedPrivateElectionIds.includes(e.id)).map((elec) => {
                             const statusInfo = getParticipationStatus(elec);

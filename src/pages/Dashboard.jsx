@@ -672,9 +672,35 @@ export default function Dashboard() {
   const [simulatedCooldown, setSimulatedCooldown] = useState(0);
   const [simulatedStatus, setSimulatedStatus] = useState('Clean (Zero Delay)');
   const logEndRef = useRef(null);
+  const broadcastRefresh = useCallback(async () => {
+    try {
+      // 1. Supabase Realtime Broadcast
+      const channel = supabase.channel('voteguard-refresh-channel');
+      await channel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.send({
+            type: 'broadcast',
+            event: 'refresh-elections',
+            payload: { timestamp: Date.now() }
+          });
+          supabase.removeChannel(channel);
+        }
+      });
 
+      // 2. Browser BroadcastChannel
+      const bc = new BroadcastChannel('voteguard-refresh-channel');
+      bc.postMessage({ event: 'refresh-elections', timestamp: Date.now() });
+      bc.close();
 
-  const fetchDatabaseData = async () => {
+      // 3. Local storage event fallback
+      localStorage.setItem('voteguard_refresh_trigger', Date.now().toString());
+      console.log('[Broadcast] Refresh event sent.');
+    } catch (err) {
+      console.error('Failed to broadcast refresh event:', err);
+    }
+  }, []);
+
+  const fetchDatabaseData = useCallback(async () => {
     try {
       // Auto-finalize any expired active elections first
       await supabase.rpc('check_and_finalize_expired_elections');
@@ -903,7 +929,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Error fetching database data:', err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -956,7 +982,7 @@ export default function Dashboard() {
     };
 
     checkAuth();
-  }, [navigate]);
+  }, [navigate, fetchDatabaseData]);
 
   // Tab change smooth scroll to top of content container
   useEffect(() => {
@@ -1364,6 +1390,7 @@ export default function Dashboard() {
       await addAuditLog('ELECTION_START', 'admin', `Activated election ${el.name} (${id})`, 'INFO', 'ok');
       alert(`✅ Election "${el.name}" is now ACTIVE!\n\nThis election is now visible to all eligible voters on the Voter Dashboard.\nVoters with active sessions will be notified automatically.`);
       await fetchDatabaseData();
+      await broadcastRefresh();
     }
   };
 
@@ -1381,6 +1408,7 @@ export default function Dashboard() {
       } else {
         await addAuditLog('ELECTION_PAUSE', 'admin', `Paused election ${el.name} (${id})`, 'INFO', 'ok');
         await fetchDatabaseData();
+        await broadcastRefresh();
       }
     } else if (el.status === 'PAUSED') {
       // Check no other ACTIVE election exists
@@ -1402,6 +1430,7 @@ export default function Dashboard() {
       } else {
         await addAuditLog('ELECTION_RESUME', 'admin', `Resumed election ${el.name} (${id})`, 'INFO', 'ok');
         await fetchDatabaseData();
+        await broadcastRefresh();
       }
     }
   };
@@ -1427,6 +1456,7 @@ export default function Dashboard() {
       ]);
       alert(`Emergency stop applied on election "${el.name}"!`);
       await fetchDatabaseData();
+      await broadcastRefresh();
     }
   };
 
@@ -1449,6 +1479,7 @@ export default function Dashboard() {
           }
           await addAuditLog('ELECTION_COMPLETED', 'admin', `Completed election ${el.name}. Final status: ${finalStatus}`, 'INFO', 'ok');
           await fetchDatabaseData();
+          await broadcastRefresh();
         }
       }
     );
@@ -1468,6 +1499,7 @@ export default function Dashboard() {
     } else {
       await addAuditLog('ELECTION_ARCHIVE', 'admin', `Archived election ${el.name} (${id})`, 'INFO', 'ok');
       await fetchDatabaseData();
+      await broadcastRefresh();
     }
   };
 
@@ -1504,7 +1536,7 @@ export default function Dashboard() {
 
   // Handle New Election Creation
   // Handle New Election Creation
-  const handleCreateElection = async (e) => {
+  const handleCreateElection = useCallback(async (e) => {
     if (e) e.preventDefault();
     if (!newElName.trim()) {
       alert('Election Name is required.');
@@ -1658,13 +1690,27 @@ export default function Dashboard() {
         setWizardStep(1);
         
         await fetchDatabaseData();
+        await broadcastRefresh();
       }
     } catch (err) {
       alert('An error occurred: ' + err.message);
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [
+    newElName,
+    newElPatterns,
+    newElRanges,
+    newElStart,
+    newElEnd,
+    isSubmitting,
+    newElAccessCode,
+    newElDesc,
+    uploadedEligibleRolls,
+    uploadedIneligibleRolls,
+    fetchDatabaseData,
+    broadcastRefresh
+  ]);
 
 
   // Candidate setup
@@ -3601,6 +3647,7 @@ export default function Dashboard() {
                           else {
                             await addAuditLog('EMERGENCY_UNLOCK', 'admin', `Unlocked election ${el.name}`, 'INFO', 'ok');
                             await fetchDatabaseData();
+                            await broadcastRefresh();
                           }
                         }}>
                           <IconLockOpen size={18} /> Unlock

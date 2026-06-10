@@ -13,6 +13,7 @@
 
 .voter-main-viewport {
   flex: 1;
+  min-height: 0; /* Allow flex child to shrink and enable proper scroll */
   max-width: 1280px;
   width: 100%;
   margin: 0 auto;
@@ -557,6 +558,10 @@
 
 /* ── TAB 2: MY ELECTIONS LIST & DETAILS ── */
 .page-intro-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 32px;
 }
 
@@ -575,8 +580,23 @@
 
 .elections-grid-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 24px;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+/* Elections split layout (public + private columns) */
+.elections-split-layout {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 32px;
+}
+
+/* Dashboard metrics summary grid */
+.voter-dashboard-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
 }
 
 .election-card-item {
@@ -5294,12 +5314,34 @@
     width: 100%;
   }
   .command-layout-grid {
-    grid-template-columns: 1fr;
-    gap: 24px;
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
   }
   .elections-split-layout {
-    grid-template-columns: 1fr;
-    gap: 24px;
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
+  }
+  .voter-dashboard-metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+    gap: 12px !important;
+  }
+  .page-intro-header {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .elections-split-layout {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+  .voter-dashboard-metrics-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+  .page-intro-header h1 {
+    font-size: 24px !important;
   }
 }
 
