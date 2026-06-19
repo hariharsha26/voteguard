@@ -1,34 +1,32 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import '../styles/CustomCursor.css';
 
 export default function CustomCursor() {
   const dotRef = useRef(null);
   const ringRef = useRef(null);
-  const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
-    // Touch device detection - disable custom cursor for touchscreen devices
-    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    if (isTouch) {
-      setEnabled(false);
-      return;
-    }
-    
-    setEnabled(true);
-
     let mouseX = 0;
     let mouseY = 0;
     let ringX = 0;
     let ringY = 0;
 
-    // Fast track mouse moves
+    // Direct tracking: update dot immediately
     const handleMouseMove = (e) => {
+      // If mouse moves, user is actively using the mouse pointer
+      document.body.classList.remove('using-touch');
+
       mouseX = e.clientX;
       mouseY = e.clientY;
 
       if (dotRef.current) {
         dotRef.current.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
       }
+    };
+
+    // Touch starts: user is interacting with touch, hide custom cursor
+    const handleTouchStart = () => {
+      document.body.classList.add('using-touch');
     };
 
     // Smooth Lerp tracking loop for outer ring
@@ -84,6 +82,7 @@ export default function CustomCursor() {
 
     // Attach event listeners
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
     window.addEventListener('mouseover', handleMouseOver);
     window.addEventListener('mouseout', handleMouseOut);
     window.addEventListener('mousedown', handleMouseDown);
@@ -94,6 +93,7 @@ export default function CustomCursor() {
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('mouseover', handleMouseOver);
       window.removeEventListener('mouseout', handleMouseOut);
       window.removeEventListener('mousedown', handleMouseDown);
@@ -101,8 +101,6 @@ export default function CustomCursor() {
       cancelAnimationFrame(animationFrameId);
     };
   }, []);
-
-  if (!enabled) return null;
 
   return (
     <>

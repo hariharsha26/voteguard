@@ -4,30 +4,52 @@
 
 /* ── PRECISE POINTERS OVERRIDE ── */
 @media (pointer: fine) {
-  body, 
-  a, 
-  button, 
-  input, 
-  select, 
-  textarea, 
-  [role="button"], 
-  .csp-tab-btn, 
-  .csp-gallery-card, 
-  .btn-primary, 
-  .btn-secondary, 
-  .theme-toggle-switch,
-  .btn-milestone,
-  .btn-back-home {
+  body:not(.using-touch), 
+  body:not(.using-touch) a, 
+  body:not(.using-touch) button, 
+  body:not(.using-touch) input, 
+  body:not(.using-touch) select, 
+  body:not(.using-touch) textarea, 
+  body:not(.using-touch) [role="button"], 
+  body:not(.using-touch) .csp-tab-btn, 
+  body:not(.using-touch) .csp-gallery-card, 
+  body:not(.using-touch) .btn-primary, 
+  body:not(.using-touch) .btn-secondary, 
+  body:not(.using-touch) .theme-toggle-switch,
+  body:not(.using-touch) .btn-milestone,
+  body:not(.using-touch) .btn-back-home {
     cursor: none !important;
   }
   
-  .custom-cursor-dot,
-  .custom-cursor-ring {
+  body:not(.using-touch) .custom-cursor-dot,
+  body:not(.using-touch) .custom-cursor-ring {
     display: block;
   }
 }
 
-/* ── TOUCHSCREEN DEVICE FALLBACK ── */
+/* ── TOUCH MODE / COARSE POINTERS FALLBACK ── */
+body.using-touch,
+body.using-touch a,
+body.using-touch button,
+body.using-touch input,
+body.using-touch select,
+body.using-touch textarea,
+body.using-touch [role="button"],
+body.using-touch .csp-tab-btn,
+body.using-touch .csp-gallery-card,
+body.using-touch .btn-primary,
+body.using-touch .btn-secondary,
+body.using-touch .theme-toggle-switch,
+body.using-touch .btn-milestone,
+body.using-touch .btn-back-home {
+  cursor: auto !important;
+}
+
+body.using-touch .custom-cursor-dot,
+body.using-touch .custom-cursor-ring {
+  display: none !important;
+}
+
 @media (pointer: coarse) {
   .custom-cursor-dot,
   .custom-cursor-ring {
@@ -55,7 +77,6 @@
   background-color: var(--teal, #69f1c4);
   border-radius: 50%;
   transition: 
-    transform 0.05s linear,
     width 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
     height 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
     background-color 0.2s ease, 
@@ -69,7 +90,6 @@
   border: 1.5px solid var(--teal, #69f1c4);
   border-radius: 50%;
   transition: 
-    transform 0.08s cubic-bezier(0.1, 0.6, 0.2, 1),
     width 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
     height 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
     border-color 0.2s ease,
