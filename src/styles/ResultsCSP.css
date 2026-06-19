@@ -2,15 +2,26 @@
    VoteGuard — Results CSP Design System Stylesheet
    ═══════════════════════════════════════════════════ */
 
+/* ── CONTAINER BACKDROP & LAYOUT ── */
 .results-csp-container {
   min-height: 100vh;
-  background: var(--bg);
+  background: 
+    radial-gradient(circle at 10% 20%, rgba(105, 241, 196, 0.06) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(246, 194, 94, 0.04) 0%, transparent 40%),
+    var(--bg);
   color: var(--text);
   padding: 40px 24px 80px;
   position: relative;
   overflow-x: hidden;
   font-family: var(--font-body);
-  transition: background-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+
+[data-theme="light"] .results-csp-container {
+  background: 
+    radial-gradient(circle at 10% 20%, rgba(37, 99, 235, 0.05) 0%, transparent 45%),
+    radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.04) 0%, transparent 45%),
+    #F8FAFC;
 }
 
 /* ── HEADER NAVIGATION ── */
@@ -27,6 +38,7 @@
   -webkit-backdrop-filter: blur(16px);
   border-radius: var(--radius);
   z-index: 100;
+  position: relative;
 }
 
 .csp-header-left {
@@ -100,12 +112,12 @@
   font-weight: 400;
 }
 
-/* ── HERO & VIDEO insights ── */
+/* ── HERO & VIDEO CONTROLS DECK ── */
 .csp-hero-grid {
   display: grid;
   grid-template-columns: 1.2fr 0.8fr;
   gap: 32px;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 48px;
 }
 
@@ -156,6 +168,14 @@
   line-height: 1.6;
 }
 
+/* Video Control Deck Wrapper */
+.csp-video-deck-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
 .csp-hero-video-card {
   position: relative;
   background: var(--glass2);
@@ -170,11 +190,6 @@
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.csp-hero-video-card:hover {
-  border-color: var(--teal);
-  box-shadow: 0 16px 40px rgba(105, 241, 196, 0.08);
-}
-
 .csp-video {
   width: 100%;
   height: 100%;
@@ -182,31 +197,175 @@
   display: block;
 }
 
-.csp-video-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(8, 10, 13, 0.8), transparent);
+/* Video Custom Control Deck */
+.csp-video-control-deck {
+  background: var(--glass2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  padding: 20px;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
+  gap: 12px;
+  box-shadow: var(--shadow-tight);
 }
 
-.csp-video-title {
+.csp-video-scrub-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.csp-video-scrubber {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+  background: linear-gradient(to right, var(--teal) 0%, var(--teal) var(--slider-percentage, 0%), var(--border) var(--slider-percentage, 0%), var(--border) 100%);
+  cursor: pointer;
+  transition: height 0.1s ease;
+}
+
+.csp-video-scrubber:hover {
+  height: 6px;
+}
+
+.csp-video-scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--teal);
+  transition: transform 0.1s ease;
+  box-shadow: 0 0 8px rgba(105, 241, 196, 0.4);
+}
+
+.csp-video-scrubber::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+}
+
+.csp-video-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn-control-play, .btn-control-mute {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
   font-size: 14px;
-  font-weight: 600;
-  color: #ffffff;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
 }
 
-.csp-video-sub {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.7);
+.btn-control-play:hover, .btn-control-mute:hover {
+  background: var(--surface2);
+  border-color: var(--border2);
+  transform: scale(1.08);
+}
+
+.csp-video-time-label {
   font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text2);
+  flex-grow: 1;
 }
 
-/* ── ANALYTICS HUB ── */
+.csp-video-milestones {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.csp-milestones-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.csp-milestones-btns {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.btn-milestone {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 550;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.btn-milestone:hover {
+  background: var(--surface2);
+  border-color: var(--teal);
+  color: var(--teal);
+  transform: translateY(-1px);
+}
+
+/* ── PREMIUM LIQUID GLASSMORPHISM & HOVER TRACES ── */
+.csp-glass-card, .csp-kpi-card, .csp-gallery-card, .csp-card, .csp-sim-metrics-box {
+  position: relative;
+  z-index: 1;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: 
+    transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+    box-shadow 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+    border-color 0.4s ease;
+}
+
+/* Gradient border-ring hover accent using ::after */
+.csp-glass-card::after, .csp-kpi-card::after, .csp-gallery-card::after, .csp-card::after, .csp-sim-metrics-box::after {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(135deg, var(--teal), var(--violet));
+  -webkit-mask: 
+     linear-gradient(#fff 0 0) content-box, 
+     linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  z-index: -1;
+  transition: opacity 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.csp-glass-card:hover::after, .csp-kpi-card:hover::after, .csp-gallery-card:hover::after, .csp-card:hover::after, .csp-sim-metrics-box:hover::after {
+  opacity: 1;
+}
+
+.csp-glass-card:hover, .csp-kpi-card:hover, .csp-gallery-card:hover, .csp-card:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: var(--shadow-soft);
+  border-color: transparent;
+}
+
+/* KPI Customization */
 .csp-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -226,22 +385,12 @@
 }
 
 .csp-kpi-card {
-  background: var(--glass);
-  border: 1px solid var(--border);
   padding: 24px;
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  position: relative;
   overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.csp-kpi-card:hover {
-  background: var(--glass2);
-  border-color: var(--border2);
-  transform: translateY(-2px);
 }
 
 .csp-kpi-card::before {
@@ -250,6 +399,7 @@
   top: 0; left: 0; width: 4px; height: 100%;
   background: var(--accent);
   opacity: 0.8;
+  z-index: 2;
 }
 
 .csp-kpi-card.juniors::before { background: var(--teal); }
@@ -277,7 +427,7 @@
   color: var(--text2);
 }
 
-/* ── TAB SELECTOR ── */
+/* ── TAB SWITCHER ── */
 .csp-tabs-bar {
   display: flex;
   background: var(--glass);
@@ -322,7 +472,7 @@
 }
 
 .csp-tab-content-panel {
-  animation: cardIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: cardIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* ── ANALYTICS PANELS ── */
@@ -339,8 +489,6 @@
 }
 
 .csp-card {
-  background: var(--glass);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 28px;
   box-shadow: var(--shadow-tight);
@@ -356,7 +504,7 @@
   padding-bottom: 12px;
 }
 
-/* ── CHART IMPLEMENTATIONS ── */
+/* ── FLUID CHART BAR KEYFRAME ANIMATIONS ── */
 .chart-bar-list {
   display: flex;
   flex-direction: column;
@@ -397,8 +545,14 @@
 .chart-bar-inner {
   height: 100%;
   border-radius: 999px;
-  transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
   background: linear-gradient(90deg, var(--teal), #a0ffd9);
+  width: var(--target-percentage);
+  animation: dynamicGrow 1.2s cubic-bezier(0.175, 0.885, 0.32, 1) forwards;
+}
+
+@keyframes dynamicGrow {
+  from { width: 0%; }
+  to { width: var(--target-percentage); }
 }
 
 .chart-bar-item:nth-child(2) .chart-bar-inner { background: linear-gradient(90deg, var(--violet), #d2bdfc); }
@@ -430,13 +584,13 @@
   align-items: center;
   gap: 6px;
   text-align: center;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 .section-dot-card:hover {
   background: var(--surface2);
-  border-color: var(--border2);
-  transform: scale(1.04);
+  border-color: var(--teal);
+  transform: scale(1.06) translateY(-2px);
 }
 
 .section-dot-label {
@@ -468,7 +622,7 @@
   box-shadow: 0 0 8px var(--violet);
 }
 
-/* ── SIDE-BY-SIDE COMPARE LIST ── */
+/* ── COMPARISON TABLE ── */
 .csp-compare-table {
   display: flex;
   flex-direction: column;
@@ -483,6 +637,12 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.csp-compare-row:hover {
+  background: var(--surface2);
+  border-color: var(--border2);
 }
 
 .csp-compare-col {
@@ -529,6 +689,12 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.infra-request-item:hover {
+  background: var(--surface2);
+  border-color: var(--gold);
 }
 
 .infra-request-icon {
@@ -549,7 +715,7 @@
   color: var(--text);
 }
 
-/* ── ACTION PLANNER SIMULATOR ── */
+/* ── NATIVE CUSTOM RANGE SLIDER STYLING ── */
 .csp-simulator-container {
   display: grid;
   grid-template-columns: 1fr 1.2fr;
@@ -597,32 +763,41 @@
   appearance: none;
   width: 100%;
   height: 6px;
-  background: var(--border);
   border-radius: 999px;
   outline: none;
-  transition: background 0.2s;
+  background: linear-gradient(to right, var(--teal) 0%, var(--teal) var(--slider-percentage, 0%), var(--border) var(--slider-percentage, 0%), var(--border) 100%);
+  transition: background 0.15s ease;
+  cursor: pointer;
 }
 
 .csp-range-input::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--teal);
   cursor: pointer;
   box-shadow: 0 0 10px rgba(105, 241, 196, 0.4);
-  transition: transform 0.1s ease, background-color 0.2s;
+  transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.2s, box-shadow 0.15s ease;
 }
 
 .csp-range-input::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
+  transform: scale(1.2);
   background: #ffffff;
+  box-shadow: 0 0 14px rgba(105, 241, 196, 0.6);
 }
 
+/* Slider Active Ring Pulse */
+.csp-range-input:active::-webkit-slider-thumb,
+.csp-range-input:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 6px rgba(105, 241, 196, 0.25), 0 0 12px rgba(105, 241, 196, 0.5);
+  background: #ffffff;
+  transform: scale(1.25);
+}
+
+/* Simulator Output Metrics Box */
 .csp-sim-metrics-box {
-  background: var(--surface);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 24px;
   display: flex;
@@ -679,7 +854,28 @@
   height: 100%;
   border-radius: 999px;
   background: var(--teal);
-  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1);
+}
+
+/* Interdependent Balanced Glow Mode */
+.csp-sim-metrics-box.balanced-glow {
+  border-color: var(--green);
+  box-shadow: 0 0 24px rgba(70, 217, 139, 0.18), var(--shadow-soft);
+  animation: balancedPulse 2s infinite alternate;
+}
+
+.csp-sim-metrics-box.balanced-glow::after {
+  opacity: 1;
+  background: linear-gradient(135deg, var(--green), var(--teal));
+}
+
+@keyframes balancedPulse {
+  from {
+    box-shadow: 0 0 12px rgba(70, 217, 139, 0.1), var(--shadow-soft);
+  }
+  to {
+    box-shadow: 0 0 28px rgba(70, 217, 139, 0.28), var(--shadow-soft);
+  }
 }
 
 /* ── MASONRY FIELDWORK GALLERY ── */
@@ -701,22 +897,12 @@
 }
 
 .csp-gallery-card {
-  background: var(--glass2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   overflow: hidden;
   cursor: pointer;
-  position: relative;
   display: flex;
   flex-direction: column;
-  transition: all 0.3s ease;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
-}
-
-.csp-gallery-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--teal);
-  box-shadow: 0 12px 30px rgba(105, 241, 196, 0.08);
 }
 
 .csp-gallery-img-wrapper {
@@ -758,12 +944,8 @@
   line-height: 1.45;
 }
 
-/* Elegant Frame Specific to Certificate Card */
 .csp-gallery-card.certificate {
   border: 2px dashed rgba(246, 194, 94, 0.3);
-}
-.csp-gallery-card.certificate:hover {
-  border-color: var(--gold);
 }
 
 .csp-gallery-card.certificate .csp-gallery-img-wrapper::after {
@@ -779,19 +961,20 @@
   font-weight: 700;
 }
 
-/* ── LIGHTBOX MODAL ── */
+/* ── LIGHTBOX MODAL ENTRANCE CHOREOGRAPHY ── */
 .csp-lightbox {
   position: fixed;
   inset: 0;
-  background: rgba(5, 7, 10, 0.9);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(5, 7, 10, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   z-index: 99999;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  animation: fadeUp 0.25s ease both;
+  opacity: 0;
+  animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .csp-lightbox-content {
@@ -801,7 +984,16 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  animation: cardIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform: scale(0.94);
+  animation: modalScalePop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes modalFadeIn {
+  to { opacity: 1; }
+}
+
+@keyframes modalScalePop {
+  to { transform: scale(1); }
 }
 
 .csp-lightbox-close {

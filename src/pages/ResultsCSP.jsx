@@ -17,11 +17,36 @@ import {
   IconPlayerPlay
 } from '@tabler/icons-react';
 
+// Lightweight, dependency-free count-up animation component
+function AnimatedCounter({ value, duration = 1200, suffix = "" }) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let startTimestamp = null;
+    const step = (timestamp) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      setCount(Math.floor(progress * value));
+      if (progress < 1) {
+        window.requestAnimationFrame(step);
+      }
+    };
+    window.requestAnimationFrame(step);
+  }, [value, duration]);
+
+  return <>{count.toLocaleString()}{suffix}</>;
+}
+
 export default function ResultsCSP() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('A');
   const [selectedImage, setSelectedImage] = useState(null);
+  
+  // Custom video controller state
   const [videoPlaying, setVideoPlaying] = useState(false);
+  const [videoTime, setVideoTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoMuted, setVideoMuted] = useState(false);
   const videoRef = useRef(null);
 
   // Simulator Allocation State
@@ -34,6 +59,7 @@ export default function ResultsCSP() {
 
   const TOTAL_BUDGET = 100;
   const currentTotal = Object.values(allocations).reduce((a, b) => a + b, 0);
+  const isBalanced = currentTotal === TOTAL_BUDGET;
 
   const handleSliderChange = (key, value) => {
     const intValue = parseInt(value) || 0;
@@ -64,6 +90,7 @@ export default function ResultsCSP() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Video Playback Custom Actions
   const handlePlayVideo = () => {
     if (videoRef.current) {
       if (videoPlaying) {
@@ -74,6 +101,36 @@ export default function ResultsCSP() {
         setVideoPlaying(true);
       }
     }
+  };
+
+  const handleScrubChange = (e) => {
+    const time = parseFloat(e.target.value);
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+      setVideoTime(time);
+    }
+  };
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !videoRef.current.muted;
+      setVideoMuted(videoRef.current.muted);
+    }
+  };
+
+  const seekToMilestone = (seconds) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+      videoRef.current.play();
+      setVideoPlaying(true);
+    }
+  };
+
+  const formatTime = (timeInSeconds) => {
+    if (isNaN(timeInSeconds)) return '0:00';
+    const mins = Math.floor(timeInSeconds / 60);
+    const secs = Math.floor(timeInSeconds % 60);
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   // Custom data arrays
@@ -192,43 +249,59 @@ export default function ResultsCSP() {
             </p>
           </div>
 
-          <div className="csp-hero-video-card" onClick={handlePlayVideo}>
-            <video
-              ref={videoRef}
-              src="/CSP_PROJECT/Video_CSP.mp4"
-              className="csp-video"
-              preload="metadata"
-              playsInline
-              loop
-            />
-            {!videoPlaying && (
-              <div className="csp-video-overlay" style={{ pointerEvents: 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexGrow: 1 }}>
-                  <button className="btn-primary" style={{ borderRadius: '50%', padding: '16px', display: 'flex', pointerEvents: 'auto' }}>
-                    <IconPlayerPlay size={24} fill="currentColor" />
-                  </button>
-                </div>
-                <div>
-                  <div className="csp-video-title">Project Video Insights & Explainer</div>
-                  <div className="csp-video-sub">Video_CSP.mp4 · Tally & Fieldwork Presentation</div>
+          {/* Interactive Video Deck */}
+          <div className="csp-video-deck-wrap">
+            <div className="csp-hero-video-card">
+              <video
+                ref={videoRef}
+                src="/CSP_PROJECT/Video_CSP.mp4"
+                className="csp-video"
+                preload="metadata"
+                playsInline
+                loop
+                muted={videoMuted}
+                onTimeUpdate={(e) => setVideoTime(e.target.currentTime)}
+                onLoadedMetadata={(e) => setVideoDuration(e.target.duration)}
+              />
+            </div>
+            
+            {/* Custom Control Deck */}
+            <div className="csp-video-control-deck">
+              <div className="csp-video-scrub-row">
+                <input
+                  type="range"
+                  min="0"
+                  max={videoDuration || 100}
+                  step="0.1"
+                  value={videoTime}
+                  className="csp-video-scrubber"
+                  onChange={handleScrubChange}
+                  style={{ '--slider-percentage': `${(videoTime / (videoDuration || 1)) * 100}%` }}
+                />
+              </div>
+              <div className="csp-video-controls-row">
+                <button className="btn-control-play" onClick={handlePlayVideo} title={videoPlaying ? "Pause" : "Play"}>
+                  {videoPlaying ? "⏸" : "▶"}
+                </button>
+                <span className="csp-video-time-label">
+                  {formatTime(videoTime)} / {formatTime(videoDuration)}
+                </span>
+                <button className="btn-control-mute" onClick={toggleMute} title={videoMuted ? "Unmute" : "Mute"}>
+                  {videoMuted ? "🔇" : "🔊"}
+                </button>
+              </div>
+
+              {/* Milestones seeking */}
+              <div className="csp-video-milestones">
+                <span className="csp-milestones-title">Jump to Time Milestones:</span>
+                <div className="csp-milestones-btns">
+                  <button className="btn-milestone" onClick={() => seekToMilestone(0)}>0:00 Setup</button>
+                  <button className="btn-milestone" onClick={() => seekToMilestone(15)}>0:15 Survey</button>
+                  <button className="btn-milestone" onClick={() => seekToMilestone(35)}>0:35 Review</button>
+                  <button className="btn-milestone" onClick={() => seekToMilestone(55)}>0:55 Results</button>
                 </div>
               </div>
-            )}
-            {videoPlaying && (
-              <button 
-                className="btn-primary" 
-                style={{ 
-                  position: 'absolute', 
-                  bottom: '16px', 
-                  right: '16px', 
-                  padding: '8px', 
-                  borderRadius: '50%',
-                  opacity: 0.8
-                }}
-              >
-                Pause
-              </button>
-            )}
+            </div>
           </div>
         </div>
       </section>
@@ -239,26 +312,34 @@ export default function ResultsCSP() {
           <IconChartBar size={24} /> Interactive Data Analytics Hub <span>N = 460 Students</span>
         </div>
 
-        {/* HIGH-LEVEL KPI CARDS */}
+        {/* HIGH-LEVEL KPI CARDS WITH COUNT-UP */}
         <div className="csp-kpi-grid">
           <div className="csp-kpi-card juniors">
             <span className="csp-kpi-label">Junior Cohort</span>
-            <div className="csp-kpi-value">180</div>
+            <div className="csp-kpi-value">
+              <AnimatedCounter value={180} />
+            </div>
             <span className="csp-kpi-sub">First-Year Students</span>
           </div>
           <div className="csp-kpi-card seniors">
             <span className="csp-kpi-label">Senior Cohort</span>
-            <div className="csp-kpi-value">280</div>
+            <div className="csp-kpi-value">
+              <AnimatedCounter value={280} />
+            </div>
             <span className="csp-kpi-sub">Second-Year Students</span>
           </div>
           <div className="csp-kpi-card sections">
             <span className="csp-kpi-label">Monitored Sections</span>
-            <div className="csp-kpi-value">16</div>
+            <div className="csp-kpi-value">
+              <AnimatedCounter value={16} />
+            </div>
             <span className="csp-kpi-sub">8 Junior + 8 Senior Classes</span>
           </div>
           <div className="csp-kpi-card satisfaction">
             <span className="csp-kpi-label">Overall Completion</span>
-            <div className="csp-kpi-value">100%</div>
+            <div className="csp-kpi-value">
+              <AnimatedCounter value={100} suffix="%" />
+            </div>
             <span className="csp-kpi-sub">Tally & Survey Success</span>
           </div>
         </div>
@@ -299,7 +380,10 @@ export default function ResultsCSP() {
                       <span className="chart-bar-value">{pref.val}%</span>
                     </div>
                     <div className="chart-bar-outer">
-                      <div className="chart-bar-inner" style={{ width: `${pref.val}%` }}></div>
+                      <div 
+                        className="chart-bar-inner" 
+                        style={{ '--target-percentage': `${pref.val}%` }}
+                      ></div>
                     </div>
                   </div>
                 ))}
@@ -362,7 +446,10 @@ export default function ResultsCSP() {
                       <span className="chart-bar-value">{service.val}%</span>
                     </div>
                     <div className="chart-bar-outer">
-                      <div className="chart-bar-inner" style={{ width: `${service.val}%` }}></div>
+                      <div 
+                        className="chart-bar-inner" 
+                        style={{ '--target-percentage': `${service.val}%` }}
+                      ></div>
                     </div>
                   </div>
                 ))}
@@ -429,7 +516,10 @@ export default function ResultsCSP() {
                         <span className="chart-bar-value">{inf.val}%</span>
                       </div>
                       <div className="chart-bar-outer">
-                        <div className="chart-bar-inner" style={{ width: `${inf.val}%` }}></div>
+                        <div 
+                          className="chart-bar-inner" 
+                          style={{ '--target-percentage': `${inf.val}%` }}
+                        ></div>
                       </div>
                     </div>
                   ))}
@@ -447,7 +537,10 @@ export default function ResultsCSP() {
                         <span className="chart-bar-value">{str.val}%</span>
                       </div>
                       <div className="chart-bar-outer">
-                        <div className="chart-bar-inner" style={{ width: `${str.val}%` }}></div>
+                        <div 
+                          className="chart-bar-inner" 
+                          style={{ '--target-percentage': `${str.val}%` }}
+                        ></div>
                       </div>
                     </div>
                   ))}
@@ -465,7 +558,10 @@ export default function ResultsCSP() {
                         <span className="chart-bar-value">{con.val}%</span>
                       </div>
                       <div className="chart-bar-outer">
-                        <div className="chart-bar-inner" style={{ width: `${con.val}%` }}></div>
+                        <div 
+                          className="chart-bar-inner" 
+                          style={{ '--target-percentage': `${con.val}%` }}
+                        ></div>
                       </div>
                     </div>
                   ))}
@@ -514,6 +610,7 @@ export default function ResultsCSP() {
                       max="100"
                       value={allocations.flippedClassrooms}
                       className="csp-range-input"
+                      style={{ '--slider-percentage': `${allocations.flippedClassrooms}%` }}
                       onChange={(e) => handleSliderChange('flippedClassrooms', e.target.value)}
                     />
                   </div>
@@ -530,6 +627,7 @@ export default function ResultsCSP() {
                       max="100"
                       value={allocations.infrastructure}
                       className="csp-range-input"
+                      style={{ '--slider-percentage': `${allocations.infrastructure}%` }}
                       onChange={(e) => handleSliderChange('infrastructure', e.target.value)}
                     />
                   </div>
@@ -546,6 +644,7 @@ export default function ResultsCSP() {
                       max="100"
                       value={allocations.careerSeminars}
                       className="csp-range-input"
+                      style={{ '--slider-percentage': `${allocations.careerSeminars}%` }}
                       onChange={(e) => handleSliderChange('careerSeminars', e.target.value)}
                     />
                   </div>
@@ -562,16 +661,24 @@ export default function ResultsCSP() {
                       max="100"
                       value={allocations.examCoaching}
                       className="csp-range-input"
+                      style={{ '--slider-percentage': `${allocations.examCoaching}%` }}
                       onChange={(e) => handleSliderChange('examCoaching', e.target.value)}
                     />
                   </div>
                 </div>
 
-                <div className="csp-sim-metrics-box">
+                {/* Micro-Interaction Interdependence balanced-glow */}
+                <div className={`csp-sim-metrics-box ${isBalanced ? 'balanced-glow' : ''}`}>
                   <div className="csp-sim-metrics-title">
                     <span>Live Output Impact Metrics</span>
                     <span className="csp-sim-budget-indicator">
-                      Unallocated Points: {TOTAL_BUDGET - currentTotal} / {TOTAL_BUDGET}
+                      {isBalanced ? (
+                        <span style={{ color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <IconCheck size={14} /> Allocation Balanced
+                        </span>
+                      ) : (
+                        `Unallocated Points: ${TOTAL_BUDGET - currentTotal} / ${TOTAL_BUDGET}`
+                      )}
                     </span>
                   </div>
 
