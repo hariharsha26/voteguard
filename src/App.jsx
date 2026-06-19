@@ -9,10 +9,12 @@ import Dashboard from './pages/Dashboard'
 import VoterDashboard from './pages/VoterDashboard'
 import ChangeEmail from './pages/ChangeEmail'
 import ResultsCSP from './pages/ResultsCSP'
+import CustomCursor from './components/CustomCursor'
 
 export default function App() {
   return (
     <>
+      <CustomCursor />
       <ScrollToTop />
       <Routes>
         <Route path="/" element={<Landing />} />

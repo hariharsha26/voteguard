@@ -1,0 +1,137 @@
+/* ═══════════════════════════════════════════════════
+   VoteGuard — Custom Cursor Design Stylesheet
+   ═══════════════════════════════════════════════════ */
+
+/* ── PRECISE POINTERS OVERRIDE ── */
+@media (pointer: fine) {
+  body, 
+  a, 
+  button, 
+  input, 
+  select, 
+  textarea, 
+  [role="button"], 
+  .csp-tab-btn, 
+  .csp-gallery-card, 
+  .btn-primary, 
+  .btn-secondary, 
+  .theme-toggle-switch,
+  .btn-milestone,
+  .btn-back-home {
+    cursor: none !important;
+  }
+  
+  .custom-cursor-dot,
+  .custom-cursor-ring {
+    display: block;
+  }
+}
+
+/* ── TOUCHSCREEN DEVICE FALLBACK ── */
+@media (pointer: coarse) {
+  .custom-cursor-dot,
+  .custom-cursor-ring {
+    display: none !important;
+  }
+}
+
+/* ── CURSOR CORE LAYOUT ── */
+.custom-cursor-dot,
+.custom-cursor-ring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 999999;
+  mix-blend-mode: difference;
+  display: none;
+  will-change: transform;
+}
+
+/* ── THE DOT (DIRECT TRACKING) ── */
+.custom-cursor-dot {
+  width: 6px;
+  height: 6px;
+  background-color: var(--teal, #69f1c4);
+  border-radius: 50%;
+  transition: 
+    transform 0.05s linear,
+    width 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+    height 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+    background-color 0.2s ease, 
+    opacity 0.2s ease;
+}
+
+/* ── THE RING (LERP TRACKING) ── */
+.custom-cursor-ring {
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid var(--teal, #69f1c4);
+  border-radius: 50%;
+  transition: 
+    transform 0.08s cubic-bezier(0.1, 0.6, 0.2, 1),
+    width 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+    height 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+    border-color 0.2s ease,
+    background-color 0.25s ease, 
+    border-radius 0.25s ease,
+    opacity 0.2s ease;
+}
+
+/* ── INTERACTIVE HOVER STATES ── */
+
+/* A. Clickable Elements Hover */
+.custom-cursor-dot.cursor-hover-clickable {
+  transform: translate(-50%, -50%) scale(0) !important;
+  opacity: 0;
+}
+
+.custom-cursor-ring.cursor-hover-clickable {
+  width: 56px;
+  height: 56px;
+  border-color: var(--gold, #f6c25e);
+  background-color: rgba(105, 241, 196, 0.08);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* B. Form Inputs / Sliders Hover */
+.custom-cursor-dot.cursor-hover-input {
+  opacity: 0.8;
+  background-color: var(--gold, #f6c25e);
+}
+
+.custom-cursor-ring.cursor-hover-input {
+  width: 12px;
+  height: 28px;
+  border-radius: 4px;
+  border-color: var(--gold, #f6c25e);
+  border-width: 1.5px;
+  background-color: transparent;
+}
+
+/* C. Active Click State */
+.custom-cursor-dot.cursor-clicking {
+  width: 4px;
+  height: 4px;
+  background-color: #ffffff;
+}
+
+.custom-cursor-ring.cursor-clicking {
+  width: 18px;
+  height: 18px;
+  border-color: #ffffff;
+  border-width: 2px;
+  background-color: rgba(255, 255, 255, 0.15);
+  animation: clickRipple 0.35s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+@keyframes clickRipple {
+  0% {
+    transform: translate3d(var(--ring-x, 0), var(--ring-y, 0), 0) translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 0 0px rgba(255, 255, 255, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
+  }
+}
