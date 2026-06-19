@@ -8,14 +8,16 @@ import { IconShield, IconClipboardList, IconBolt, IconLock, IconEye, IconEyeOff 
 import { supabase } from '../lib/supabaseClient';
 
 export default function AdminAuth() {
-  const [view, setView] = useState('login'); // 'login' | 'otp-sending' | 'otp-enter'
+  const [view, setView] = useState('login'); // 'login' | 'otp'
+  const [otpState, setOtpState] = useState('sending'); // 'sending' | 'sent' | 'failed' | 'verifying' | 'success'
+  const [otpProgressMessage, setOtpProgressMessage] = useState('');
   const [adminId, setAdminId] = useState('');
   const [adminPass, setAdminPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [failCount, setFailCount] = useState(0);
   const [locked, setLocked] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  const [otpTimer, setOtpTimer] = useState(300); // 5:00 in seconds
+  const [otpTimer, setOtpTimer] = useState(600); // 10:00 in seconds
   const [inputErrors, setInputErrors] = useState(false);
 
   const navigate = useNavigate();
@@ -43,7 +45,7 @@ export default function AdminAuth() {
 
   // OTP countdown effect
   useEffect(() => {
-    if (view === 'otp-enter' && otpTimer > 0) {
+    if (view === 'otp' && otpTimer > 0) {
       otpTimerRef.current = setInterval(() => {
         setOtpTimer((prev) => {
           if (prev <= 1) {
@@ -56,6 +58,14 @@ export default function AdminAuth() {
     }
     return () => clearInterval(otpTimerRef.current);
   }, [view, otpTimer]);
+
+  const [authEmail, setAuthEmail] = useState('');
+
+  useEffect(() => {
+    if (otpInputCode.length === 6 && view === 'otp' && otpState === 'sent' && otpTimer > 0) {
+      handleVerifyOTP({ preventDefault: () => {} });
+    }
+  }, [otpInputCode, view, otpState, otpTimer]);
 
   const [productionLock, setProductionLock] = useState(false);
 
@@ -118,9 +128,14 @@ export default function AdminAuth() {
         return;
       }
 
-      setView('otp-sending');
+      // Valid password and role. Now sign out to trigger native OTP.
+      await supabase.auth.signOut();
+
+      setAuthEmail(adminEmail);
+      setView('otp');
+      setOtpState('sending');
       setTimeout(() => {
-        handleSendOTP({ preventDefault: () => {} });
+        handleSendOTP(null, adminEmail);
       }, 50);
     } catch (err) {
       console.error('Admin Auth first-stage error:', err);
@@ -143,53 +158,75 @@ export default function AdminAuth() {
     }
   };
 
-  const [debugOtpCode, setDebugOtpCode] = useState('');
   const [otpInputCode, setOtpInputCode] = useState('');
   const [verificationError, setVerificationError] = useState('');
 
-  const handleSendOTP = async (e) => {
-    e.preventDefault();
+  const handleSendOTP = async (e, emailParam = null) => {
+    if (e) e.preventDefault();
     setVerificationError('');
+    setOtpState('sending');
+    setOtpProgressMessage('Preparing secure verification channel...');
+    
+    const targetEmail = emailParam || authEmail;
+    if (!targetEmail) {
+      setOtpState('failed');
+      setVerificationError('Email context lost. Please login again.');
+      return;
+    }
+
     try {
-      const { data, error: otpError } = await supabase.rpc('generate_login_otp');
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: targetEmail
+      });
+
       if (otpError) {
-        setVerificationError(otpError.message);
+        setOtpState('failed');
+        setVerificationError(otpError.message || 'Failed to generate secure OTP.');
         return;
       }
 
-      const { debug_otp } = data[0] || {};
-      const isProd = import.meta.env.VITE_APP_ENV === 'production' || productionLock;
-      if (debug_otp && !isProd) {
-        setDebugOtpCode(debug_otp);
-      } else {
-        setDebugOtpCode('');
-      }
-
-      setOtpTimer(300); // Reset timer
-      setView('otp-enter');
+      setOtpTimer(600); // Reset timer to 10 minutes
+      setOtpState('sent');
     } catch (err) {
       console.error('OTP send error:', err);
+      setOtpState('failed');
       setVerificationError('Failed to generate secure OTP.');
     }
   };
 
   const handleVerifyOTP = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setVerificationError('');
+    setOtpState('verifying');
+    setOtpProgressMessage('Authenticating verification token...');
+    
+    if (!authEmail) {
+      setOtpState('sent');
+      setVerificationError('Email context lost. Please try logging in again.');
+      return;
+    }
+
     try {
-      const { error: verifyError } = await supabase.rpc('verify_login_otp', {
-        p_otp_code: otpInputCode
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email: authEmail,
+        token: otpInputCode,
+        type: 'email'
       });
 
       if (verifyError) {
-        setVerificationError(verifyError.message);
+        setOtpState('sent');
+        setVerificationError(verifyError.message || 'Invalid verification code.');
         return;
       }
 
-      alert('Two-Factor Authentication Verified! Redirecting to Dashboard.');
-      navigate('/dashboard');
+      setOtpState('success');
+      setOtpProgressMessage('Verification complete. Redirecting to console...');
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 1000);
     } catch (err) {
       console.error('OTP verify error:', err);
+      setOtpState('sent');
       setVerificationError('Failed to verify authentication integrity.');
     }
   };
@@ -424,46 +461,117 @@ export default function AdminAuth() {
               </div>
             )}
 
-            {/* VIEW 2: OTP SENDING LOADING */}
-            {view === 'otp-sending' && (
-              <div className="form-view active" style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
-                <div className="secure-loading-spinner" style={{ borderColor: 'rgba(212,168,67,0.2)', borderTopColor: 'var(--gold)', borderWidth: '3px', borderStyle: 'solid', borderRadius: '50%', width: '40px', height: '40px', animation: 'spin 1s linear infinite' }} />
-                <div style={{ fontSize: '15px', fontWeight: '650', color: 'var(--text)' }}>Contacting Dispatcher</div>
-                <div style={{ fontSize: '12.5px', color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>Preparing secure verification channel...</div>
-              </div>
-            )}
-
-            {/* VIEW 3: OTP ENTER */}
-            {view === 'otp-enter' && (
+            {/* VIEW 2: OTP AREA */}
+            {view === 'otp' && (
               <div className="form-view active">
-                <div className="back-link" onClick={() => setView('login')}>← Back</div>
-                <div className="card-title">Enter Verification Code</div>
-                <div className="card-sub" style={{ marginBottom: '8px' }}>Admin Access · 2FA Required</div>
-
-                <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' }}>Code sent to your registered email</div>
-                <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '4px' }}>
-                  Expires in <span style={{ color: 'var(--gold)', fontFamily: 'var(--mono)' }}>{formatOtpTimer(otpTimer)}</span>
-                </div>
-
-                {verificationError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{verificationError}</div>}
-                {debugOtpCode && import.meta.env.VITE_APP_ENV !== 'production' && !productionLock && (
-                  <div className="info-banner show" style={{ marginBottom: 16, padding: '10px', background: 'rgba(212,168,67,0.1)', border: '1px solid rgba(212,168,67,0.3)', borderRadius: '6px', fontSize: '12.5px', color: 'var(--gold)', fontWeight: '600', textAlign: 'center' }}>
-                    Development Mode: Use verification code <strong>{debugOtpCode}</strong>
+                {/* 1. SENDING STATE OVERLAY */}
+                {otpState === 'sending' && (
+                  <div style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                    <div className="secure-loading-spinner" style={{ borderColor: 'rgba(212,168,67,0.2)', borderTopColor: 'var(--gold)', borderWidth: '3px', borderStyle: 'solid', borderRadius: '50%', width: '40px', height: '40px', animation: 'secureSpin 1s linear infinite', boxShadow: '0 0 15px rgba(246, 194, 94, 0.2)' }} />
+                    <div style={{ fontSize: '15px', fontWeight: '650', color: 'var(--text)' }}>Contacting Dispatcher</div>
+                    <div style={{ fontSize: '12.5px', color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>{otpProgressMessage}</div>
                   </div>
                 )}
 
-                <OtpInput focusColor="gold" onChange={setOtpInputCode} />
+                {/* 2. VERIFYING STATE OVERLAY */}
+                {otpState === 'verifying' && (
+                  <div style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                    <div className="secure-loading-spinner" style={{ borderColor: 'rgba(212,168,67,0.2)', borderTopColor: 'var(--gold)', borderWidth: '3px', borderStyle: 'solid', borderRadius: '50%', width: '40px', height: '40px', animation: 'secureSpin 1s linear infinite', boxShadow: '0 0 15px rgba(246, 194, 94, 0.2)' }} />
+                    <div style={{ fontSize: '15px', fontWeight: '650', color: 'var(--text)' }}>Verifying Integrity</div>
+                    <div style={{ fontSize: '12.5px', color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>{otpProgressMessage}</div>
+                  </div>
+                )}
 
-                <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text3)', marginBottom: '18px', marginTop: '16px' }}>
-                  Didn't receive it? <span style={{ color: 'var(--gold)', cursor: 'pointer' }} onClick={handleSendOTP}>Resend code</span>
-                </div>
+                {/* 3. SUCCESS STATE OVERLAY */}
+                {otpState === 'success' && (
+                  <div style={{ padding: '40px 10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                    <div className="secure-success-checkmark animate-scale-up" style={{ animation: 'checkmarkPulse 1.8s ease-in-out infinite alternate' }}>
+                      <svg viewBox="0 0 52 52" style={{ width: '48px', height: '48px' }}>
+                        <circle cx="26" cy="26" r="25" fill="none" stroke="var(--gold)" strokeWidth="3" />
+                        <path fill="none" stroke="var(--gold)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
+                      </svg>
+                    </div>
+                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text)' }}>Session Authorized</div>
+                    <div style={{ fontSize: '13px', color: 'var(--text2)' }}>{otpProgressMessage}</div>
+                  </div>
+                )}
 
-                <button className="btn-main gold" onClick={handleVerifyOTP}>Verify &amp; Login</button>
+                {/* 4. CODE ENTRY STATE */}
+                {(otpState === 'sent' || otpState === 'failed') && (
+                  <>
+                    <div className="back-link" onClick={() => setView('login')}>← Back</div>
+                    <div className="card-title">Enter Verification Code</div>
+                    <div className="card-sub" style={{ marginBottom: '16px' }}>Admin Access · 2FA Required</div>
 
-                <div className="sec-panel" style={{ marginTop: '18px' }}>
-                  <div className="sec-item"><div className="sec-dot"></div>Audit log on verify</div>
-                  <div className="sec-item"><div className="sec-dot"></div>Rate limited</div>
-                </div>
+                    {/* Delivery Status Badge */}
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+                      {otpState === 'sent' && (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          borderRadius: '20px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          background: 'rgba(246, 194, 94, 0.1)',
+                          border: '1px solid rgba(246, 194, 94, 0.3)',
+                          color: '#f6c25e'
+                        }}>
+                          <span>Delivered</span>
+                          <span style={{ fontSize: '14px' }}>✓</span>
+                        </div>
+                      )}
+                      {otpState === 'failed' && (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          borderRadius: '20px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          background: 'rgba(255, 107, 107, 0.1)',
+                          border: '1px solid rgba(255, 107, 107, 0.3)',
+                          color: '#ff6b6b'
+                        }}>
+                          <span>Failed</span>
+                          <span style={{ fontSize: '14px' }}>✗</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '4px', textAlign: 'center' }}>
+                      A 6-digit verification code has been sent to your registered email address.
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '12px', textAlign: 'center' }}>
+                      Expires in <span style={{ color: 'var(--gold)', fontFamily: 'var(--mono)' }}>{formatOtpTimer(otpTimer)}</span>
+                    </div>
+
+                    {verificationError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{verificationError}</div>}
+
+                    <OtpInput length={6} focusColor="gold" onChange={setOtpInputCode} />
+
+                    <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text3)', marginBottom: '18px', marginTop: '16px' }}>
+                      Didn't receive it? <span style={{ color: 'var(--gold)', cursor: 'pointer', fontWeight: '600' }} onClick={handleSendOTP}>Resend code</span>
+                    </div>
+
+                    {otpState === 'failed' ? (
+                      <button className="btn-main gold" style={{ background: 'transparent', border: '1px solid var(--red)', color: 'var(--red)' }} onClick={handleSendOTP}>
+                        Retry Sending
+                      </button>
+                    ) : (
+                      <button className="btn-main gold" onClick={handleVerifyOTP} disabled={otpTimer <= 0}>
+                        Verify &amp; Login
+                      </button>
+                    )}
+
+                    <div className="sec-panel" style={{ marginTop: '18px' }}>
+                      <div className="sec-item"><div className="sec-dot"></div>Audit log on verify</div>
+                      <div className="sec-item"><div className="sec-dot"></div>Rate limited</div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

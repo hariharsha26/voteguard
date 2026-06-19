@@ -71,6 +71,7 @@ export default function Landing() {
             <li><a href="#features" onClick={(e) => { e.preventDefault(); scrollTo('features'); }}>Features</a></li>
             <li><a href="#security" onClick={(e) => { e.preventDefault(); scrollTo('security'); }}>Security</a></li>
             <li><a href="#comparison" onClick={(e) => { e.preventDefault(); scrollTo('comparison'); }}>Why Us</a></li>
+            <li><a href="/results-csp" onClick={(e) => { e.preventDefault(); navigate('/results-csp'); }} style={{ color: 'var(--teal)', fontWeight: 'bold' }}>Results CSP</a></li>
           </ul>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <ThemeToggle />
@@ -97,6 +98,7 @@ export default function Landing() {
                 <li><a href="#features" onClick={(e) => { e.preventDefault(); scrollTo('features'); setMobileMenuOpen(false); }}>Features</a></li>
                 <li><a href="#security" onClick={(e) => { e.preventDefault(); scrollTo('security'); setMobileMenuOpen(false); }}>Security</a></li>
                 <li><a href="#comparison" onClick={(e) => { e.preventDefault(); scrollTo('comparison'); setMobileMenuOpen(false); }}>Why Us</a></li>
+                <li><a href="/results-csp" onClick={(e) => { e.preventDefault(); navigate('/results-csp'); setMobileMenuOpen(false); }} style={{ color: 'var(--teal)', fontWeight: 'bold' }}>Results CSP</a></li>
               </ul>
               <a href="#cta" className="nav-cta mobile-nav-cta" onClick={(e) => { e.preventDefault(); scrollTo('cta'); setMobileMenuOpen(false); }}>Get Started</a>
             </div>

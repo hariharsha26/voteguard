@@ -8,6 +8,7 @@ import AdminAuth from './pages/AdminAuth'
 import Dashboard from './pages/Dashboard'
 import VoterDashboard from './pages/VoterDashboard'
 import ChangeEmail from './pages/ChangeEmail'
+import ResultsCSP from './pages/ResultsCSP'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/voter" element={<VoterDashboard />} />
         <Route path="/profile/change-email" element={<ChangeEmail />} />
+        <Route path="/results-csp" element={<ResultsCSP />} />
       </Routes>
       <SpeedInsights />
     </>

@@ -183,9 +183,6 @@ export default function VoterDashboard() {
 
   const fetchVoterData = useCallback(async (userRoll) => {
     try {
-      // 0. Auto-finalize expired active elections first
-      await supabase.rpc('check_and_finalize_expired_elections');
-
       // 1. Fetch elections (except DRAFT ones)
       const { data: dbElections, error: elError } = await supabase
         .from('elections')
@@ -455,9 +452,10 @@ export default function VoterDashboard() {
 
   // ── Supabase Realtime subscription ──
   useEffect(() => {
+    const uniqueChannelName = `voter-election-sync-${Date.now()}`;
     // Subscribe to changes on elections, candidates, election_results
     const channel = supabase
-      .channel('voter-election-sync')
+      .channel(uniqueChannelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'elections' }, (payload) => {
         console.log('[Realtime] elections change:', payload.eventType);
         const roll = voterRollRef.current;
@@ -490,11 +488,9 @@ export default function VoterDashboard() {
         }
       })
       .subscribe((status, err) => {
-        console.log('[Realtime] Subscription status:', status);
         if (status === 'SUBSCRIBED') {
           setSyncStatus('CONNECTED');
         } else {
-          console.warn('[Realtime] Subscription error or closed, status:', status, err);
           setSyncStatus('POLLING');
         }
       });
@@ -1621,8 +1617,21 @@ cryptographically sealed on the ledger.
         body: { election_id: activeWizardElection.id }
       });
 
-      if (funcError || !data) {
-        throw funcError || new Error('Failed to retrieve token from server.');
+      if (funcError) {
+        let backendError = funcError.message;
+        if (funcError.context && typeof funcError.context.json === 'function') {
+          try {
+            const errorBody = await funcError.context.clone().json();
+            backendError = errorBody.error || errorBody.message || backendError;
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+        throw new Error(backendError || 'Failed to retrieve token from server.');
+      }
+      
+      if (!data) {
+        throw new Error('Failed to retrieve token from server.');
       }
 
       if (data.error) {
@@ -2741,7 +2750,7 @@ cryptographically sealed on the ledger.
                     }}>
                       <strong style={{ color: 'var(--text)', display: 'block', fontSize: '13px', marginBottom: '8px' }}>Please check your verified channels:</strong>
                       <div className="delivery-tip-item" style={{ fontSize: '12.5px', color: 'var(--text2)', display: 'flex', gap: '8px', marginBottom: '6px' }}>
-                        <span>✓</span> <span>Inbox (aarav.mehta@vit.edu)</span>
+                        <span>✓</span> <span>Inbox ({voter?.email || 'your registered email'})</span>
                       </div>
                       <div className="delivery-tip-item" style={{ fontSize: '12.5px', color: 'var(--text2)', display: 'flex', gap: '8px', marginBottom: '6px' }}>
                         <span>✓</span> <span>Spam Folder / Junk Mail</span>
@@ -2768,28 +2777,7 @@ cryptographically sealed on the ledger.
                       This token can only be used once. Anyone with access to this token can cast a ballot under your credentials. Keep it strictly private.
                     </div>
 
-                    {wizardGeneratedToken && import.meta.env.VITE_APP_ENV !== 'production' && !productionLock && (
-                      <div style={{
-                        padding: '14px',
-                        background: 'rgba(74, 157, 143, 0.08)',
-                        border: '1px solid rgba(74, 157, 143, 0.2)',
-                        borderRadius: '8px',
-                        color: 'var(--text)',
-                        fontSize: '12.5px',
-                        lineHeight: '1.5',
-                        textAlign: 'left',
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        marginBottom: '20px'
-                      }}>
-                        <strong style={{ color: 'var(--teal)', display: 'block', marginBottom: '4px' }}>Development Mode</strong>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0 2px' }}>
-                          <span style={{ fontSize: '13px', fontWeight: '700', fontFamily: 'monospace' }}>Your Token: {wizardGeneratedToken}</span>
-                          <button style={{ background: 'var(--teal)', border: 'none', borderRadius: '4px', color: '#07100e', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }} onClick={() => handleCopyText(wizardGeneratedToken, 'Token')}>Copy</button>
-                        </div>
-                        <span style={{ fontSize: '11px', color: 'var(--text3)' }}>(Email simulation active)</span>
-                      </div>
-                    )}
+
 
                     <div className="wizard-slide-footer full-width">
                       <button className="btn-wizard-nav-back" onClick={() => setWizardStep('token_gen_complete')}>Back</button>
@@ -2837,9 +2825,7 @@ cryptographically sealed on the ledger.
                                 ⚠️ Invalid Token. Attempt {tokenAttempts} of 5. Please try again.
                               </span>
                             )}
-                            <button className="btn-autofill-test-token" onClick={() => setWizardTokenInput(wizardGeneratedToken)}>
-                              <IconBulb size={16} /> Autofill test token ({wizardGeneratedToken})
-                            </button>
+
                           </>
                         )}
                       </div>

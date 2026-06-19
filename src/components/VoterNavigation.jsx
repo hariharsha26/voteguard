@@ -7,8 +7,7 @@ const formatDisplayName = (name) => {
   if (!name) return '';
   const words = name.trim().split(/\s+/);
   if (words.length === 0) return '';
-  const display = words.slice(0, 2).join(' ');
-  return display.length > 20 ? display.substring(0, 18) + '...' : display;
+  return words.slice(0, 2).join(' ');
 };
 
 export default function VoterNavigation({

@@ -14,10 +14,10 @@
 .voter-main-viewport {
   flex: 1;
   min-height: 0; /* Allow flex child to shrink and enable proper scroll */
-  max-width: 1280px;
+  max-width: 1400px;
   width: 100%;
   margin: 0 auto;
-  padding: 40px 24px 100px;
+  padding: 24px 24px 100px;
   box-sizing: border-box;
 }
 
@@ -213,8 +213,8 @@
 .home-dashboard-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-bottom: 24px;
+  gap: 20px;
+  margin-bottom: 32px;
 }
 
 /* ── ELECTION WIDGET CARD ── */
@@ -633,21 +633,33 @@
 }
 
 .status-badge-lbl.active {
-  background: var(--teal2);
-  color: var(--teal);
-  border: 1px solid var(--teal3);
+  background: var(--green);
+  color: #fff;
+  border: 1px solid var(--green);
+}
+
+.status-badge-lbl.paused {
+  background: var(--gold);
+  color: #fff;
+  border: 1px solid var(--gold);
 }
 
 .status-badge-lbl.completed {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+}
+
+.status-badge-lbl.draft {
   background: var(--surface2);
   color: var(--text2);
   border: 1px solid var(--border);
 }
 
-.status-badge-lbl.upcoming {
-  background: var(--gold2);
-  color: var(--gold);
-  border: 1px solid var(--gold3);
+.status-badge-lbl.deadlock {
+  background: var(--red);
+  color: #fff;
+  border: 1px solid var(--red);
 }
 
 .card-election-id {
@@ -1905,15 +1917,22 @@
   color: var(--text);
   font-family: var(--font-body);
   font-size: 13px;
+  height: 44px;
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   outline: none;
   transition: all 0.2s;
 }
 
+.form-field textarea {
+  height: auto;
+  min-height: 80px;
+}
+
 .form-field input:focus, .form-field textarea:focus {
-  border-color: var(--teal);
+  border-color: var(--accent);
   background: var(--surface2);
+  box-shadow: 0 0 0 3px var(--teal3);
 }
 
 .btn-support-submit {
@@ -4093,8 +4112,14 @@
   border-bottom: 1px solid var(--border);
 }
 .comparison-table th {
-  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg2);
   font-weight: 700;
+}
+.comparison-table tbody tr:nth-child(even) {
+  background-color: var(--surface);
 }
 .comparison-table tr:hover {
   background: var(--surface2);

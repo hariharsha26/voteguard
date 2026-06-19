@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabaseClient';
 
 export default function VoterAuth() {
   const [view, setView] = useState('login'); // 'login' | 'register' | 'otp' | 'forgot'
-  const [otpState, setOtpState] = useState('sending'); // 'sending' | 'sent' | 'verifying' | 'success'
+  const [otpState, setOtpState] = useState('sending'); // 'sending' | 'sent' | 'failed' | 'verifying' | 'success'
   const [otpProgressMessage, setOtpProgressMessage] = useState('');
   
   // Registration States
@@ -33,8 +33,37 @@ export default function VoterAuth() {
 
   // OTP Verification States
   const [otpInputCode, setOtpInputCode] = useState('');
-  const [debugOtpCode, setDebugOtpCode] = useState('');
   const [verificationError, setVerificationError] = useState('');
+  const [timerSeconds, setTimerSeconds] = useState(600);
+  const [authEmail, setAuthEmail] = useState('');
+
+  const formatTime = (secs) => {
+    const mins = Math.floor(secs / 60);
+    const remainder = secs % 60;
+    return `${mins}:${remainder.toString().padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    if (otpState !== 'sent') return;
+    setTimerSeconds(600);
+    const interval = setInterval(() => {
+      setTimerSeconds(prev => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setVerificationError('OTP expired. Please request a new code.');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [otpState]);
+
+  useEffect(() => {
+    if (otpInputCode.length === 4 && otpState === 'sent' && timerSeconds > 0) {
+      handleVerifyOTP();
+    }
+  }, [otpInputCode, otpState, timerSeconds]);
 
   // Forgot/Reset Password States
   const [forgotEmail, setForgotEmail] = useState('');
@@ -118,10 +147,14 @@ export default function VoterAuth() {
         return;
       }
 
+      // Valid password. Now sign out and trigger native OTP.
+      await supabase.auth.signOut();
+      
+      setAuthEmail(voter.email);
       setView('otp');
       setOtpState('sending');
       setTimeout(() => {
-        handleSendOTP();
+        handleSendOTP(null, voter.email);
       }, 50);
     } catch (err) {
       console.error('Login error:', err);
@@ -170,10 +203,13 @@ export default function VoterAuth() {
         return;
       }
 
+      await supabase.auth.signOut();
+      
+      setAuthEmail(regEmail.trim());
       setView('otp');
       setOtpState('sending');
       setTimeout(() => {
-        handleSendOTP();
+        handleSendOTP(null, regEmail.trim());
       }, 50);
     } catch (err) {
       console.error('Registration error:', err);
@@ -183,33 +219,34 @@ export default function VoterAuth() {
     }
   };
 
-  const handleSendOTP = async (e) => {
+  const handleSendOTP = async (e, emailParam = null) => {
     if (e) e.preventDefault();
     setVerificationError('');
     setOtpState('sending');
     setOtpProgressMessage('Preparing secure verification channel...');
+    
+    const targetEmail = emailParam || authEmail;
+    if (!targetEmail) {
+      setOtpState('failed');
+      setVerificationError('Email address missing. Please login again.');
+      return;
+    }
 
     try {
-      const { data, error: otpError } = await supabase.rpc('generate_login_otp');
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: targetEmail
+      });
 
       if (otpError) {
-        setOtpState('idle');
-        setVerificationError(otpError.message);
+        setOtpState('failed');
+        setVerificationError(otpError.message || 'Failed to dispatch verification code.');
         return;
-      }
-
-      const { debug_otp } = data[0] || {};
-      const isProd = import.meta.env.VITE_APP_ENV === 'production' || productionLock;
-      if (debug_otp && !isProd) {
-        setDebugOtpCode(debug_otp);
-      } else {
-        setDebugOtpCode('');
       }
 
       setOtpState('sent');
     } catch (err) {
       console.error('Send OTP error:', err);
-      setOtpState('idle');
+      setOtpState('failed');
       setVerificationError('Failed to dispatch verification code.');
     }
   };
@@ -220,14 +257,22 @@ export default function VoterAuth() {
     setOtpState('verifying');
     setOtpProgressMessage('Authenticating verification token...');
 
+    if (!authEmail) {
+      setOtpState('sent');
+      setVerificationError('Email context lost. Please try logging in again.');
+      return;
+    }
+
     try {
-      const { error: verifyError } = await supabase.rpc('verify_login_otp', {
-        p_otp_code: otpInputCode
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email: authEmail,
+        token: otpInputCode,
+        type: 'email'
       });
 
       if (verifyError) {
         setOtpState('sent');
-        setVerificationError(verifyError.message);
+        setVerificationError(verifyError.message || 'Invalid verification code.');
         return;
       }
 
@@ -615,20 +660,57 @@ export default function VoterAuth() {
                 )}
 
                 {/* 2. CODE ENTRY STATE */}
-                {otpState === 'sent' && (
+                {(otpState === 'sent' || otpState === 'failed') && (
                   <>
                     <div className="back-link" onClick={() => setView('login')}><span className="back-arrow">←</span> Back to Login</div>
                     <div className="card-title">Enter Security Code</div>
                     <div className="card-sub" style={{ marginBottom: '24px' }}>
-                      A 6-digit verification code has been sent to your registered email address.
+                      A 4-digit verification code has been sent to your registered email address.
+                    </div>
+
+                    {/* Delivery Status Badge */}
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+                      {otpState === 'sent' && (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          borderRadius: '20px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          background: 'rgba(105, 241, 196, 0.1)',
+                          border: '1px solid rgba(105, 241, 196, 0.3)',
+                          color: '#69f1c4'
+                        }}>
+                          <span>Delivered</span>
+                          <span style={{ fontSize: '14px' }}>✓</span>
+                        </div>
+                      )}
+                      {otpState === 'failed' && (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          borderRadius: '20px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          background: 'rgba(255, 107, 107, 0.1)',
+                          border: '1px solid rgba(255, 107, 107, 0.3)',
+                          color: '#ff6b6b'
+                        }}>
+                          <span>Failed</span>
+                          <span style={{ fontSize: '14px' }}>✗</span>
+                        </div>
+                      )}
                     </div>
 
                     {verificationError && <div className="error-banner show" style={{ marginBottom: 12, fontSize: '13px' }}>{verificationError}</div>}
-                    {debugOtpCode && import.meta.env.VITE_APP_ENV !== 'production' && !productionLock && (
-                      <div className="info-banner show" style={{ marginBottom: 16, padding: '10px', background: 'rgba(74, 157, 143, 0.1)', border: '1px solid rgba(74, 157, 143, 0.3)', borderRadius: '6px', fontSize: '12.5px', color: 'var(--teal)', fontWeight: '600', textAlign: 'center' }}>
-                        Development Mode: Use verification code <strong>{debugOtpCode}</strong>
-                      </div>
-                    )}
+
+                    <div className="otp-expiry-timer" style={{ marginBottom: '16px', fontSize: '14px', color: 'var(--teal)', fontWeight: '600', textAlign: 'center' }}>
+                      {timerSeconds > 0 ? `OTP expires in ${formatTime(timerSeconds)}` : 'OTP expired'}
+                    </div>
 
                     <div style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px', fontWeight: '600' }}>Enter Verification Code</div>
                     <OtpInput onChange={setOtpInputCode} />
@@ -636,7 +718,15 @@ export default function VoterAuth() {
                     <div className="otp-sent-info" style={{ marginTop: '20px', fontSize: '12px', color: 'var(--text3)' }}>
                       Didn't receive it? <span className="link-sm" onClick={() => handleSendOTP()} style={{ color: 'var(--teal)', cursor: 'pointer', fontWeight: '600' }}>Resend Code</span>
                     </div>
-                    <button className="btn-main" style={{ marginTop: '16px' }} onClick={handleVerifyOTP}>Verify &amp; Authorize Session</button>
+                    {otpState === 'failed' ? (
+                      <button className="btn-main" style={{ marginTop: '16px', background: 'transparent', border: '1px solid var(--red)', color: 'var(--red)' }} onClick={handleSendOTP}>
+                        Retry Sending
+                      </button>
+                    ) : (
+                      <button className="btn-main" style={{ marginTop: '16px' }} onClick={handleVerifyOTP} disabled={timerSeconds <= 0}>
+                        Verify &amp; Authorize Session
+                      </button>
+                    )}
                   </>
                 )}
 

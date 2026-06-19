@@ -6,7 +6,7 @@ import ThemeToggle from '../components/ThemeToggle';
 import CountUpNumber from '../components/ReactBits/CountUpNumber';
 import SpotlightCard from '../components/ReactBits/SpotlightCard';
 import '../styles/Dashboard.css';
-import { IconChartBar, IconBox, IconUsers, IconHeartHandshake, IconTrophy, IconFolder, IconPlug, IconAlertCircle, IconUser, IconBolt, IconBell, IconShield, IconTrendingUp, IconAlertTriangle, IconDeviceFloppy, IconEye, IconEyeOff, IconPlayerPause, IconPlayerPlay, IconLockOpen, IconPackage, IconInbox, IconCamera, IconPencil, IconRefresh, IconSearch, IconFileDescription, IconScale, IconPlus, IconArchive, IconPin, IconCircleCheck } from '@tabler/icons-react';
+import { IconChartBar, IconBox, IconUsers, IconHeartHandshake, IconTrophy, IconFolder, IconPlug, IconAlertCircle, IconUser, IconBolt, IconBell, IconShield, IconTrendingUp, IconAlertTriangle, IconDeviceFloppy, IconEye, IconEyeOff, IconPlayerPause, IconPlayerPlay, IconLockOpen, IconPackage, IconInbox, IconCamera, IconPencil, IconRefresh, IconSearch, IconFileDescription, IconScale, IconPlus, IconArchive, IconPin, IconCircleCheck, IconActivity } from '@tabler/icons-react';
 import { supabase } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx';
 
@@ -199,6 +199,11 @@ export default function Dashboard() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [activeAlerts] = useState([]);
+
+  // Diagnostics state
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsResults, setDiagnosticsResults] = useState(null);
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
 
   // Phase 6 States
   const [securityData, setSecurityData] = useState(null);
@@ -1112,6 +1117,141 @@ export default function Dashboard() {
     fetchIntegrityReport();
   }, [selectedAuditElectionId]);
 
+  const runElectionSystemDiagnostics = async () => {
+    setDiagnosticsLoading(true);
+    setDiagnosticsResults(null);
+    setShowDiagnosticsModal(true);
+    
+    const results = {
+      adminAuth: { name: "Admin Authenticated", status: "PENDING", details: "" },
+      adminExists: { name: "Exists in super_admins", status: "PENDING", details: "" },
+      isSuperAdminRpc: { name: "is_super_admin() is TRUE", status: "PENDING", details: "" },
+      sessionVerified: { name: "Session Valid & Verified", status: "PENDING", details: "" },
+      electionExists: { name: "Election Database Records Exist", status: "PENDING", details: "" },
+      electionStatusValid: { name: "Election Status Validity", status: "PENDING", details: "" },
+      rpcExecutable: { name: "RPC Endpoints Executable", status: "PENDING", details: "" },
+      rlsValidation: { name: "RLS Access Verification", status: "PENDING", details: "" },
+    };
+
+    try {
+      // 1. Admin authenticated check
+      const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr || !session) {
+        results.adminAuth.status = "FAIL";
+        results.adminAuth.details = "No active authentication session found. " + (sessionErr?.message || "");
+      } else {
+        results.adminAuth.status = "PASS";
+        results.adminAuth.details = `Authenticated as ${session.user.email} (ID: ${session.user.id})`;
+        
+        // 2. Admin exists check
+        const { data: adminData, error: adminErr } = await supabase
+          .from('super_admins')
+          .select('*')
+          .eq('auth_user_id', session.user.id)
+          .maybeSingle();
+
+        if (adminErr || !adminData) {
+          results.adminExists.status = "FAIL";
+          results.adminExists.details = "Admin record not found in public.super_admins table. " + (adminErr?.message || "");
+        } else {
+          results.adminExists.status = "PASS";
+          results.adminExists.details = `Record found: ${adminData.full_name} (${adminData.admin_id})`;
+        }
+
+        // 3. is_super_admin() returns TRUE check
+        const { data: isSuper, error: isSuperErr } = await supabase.rpc('is_super_admin');
+        if (isSuperErr) {
+          results.isSuperAdminRpc.status = "FAIL";
+          results.isSuperAdminRpc.details = "RPC is_super_admin call failed: " + isSuperErr.message;
+        } else if (!isSuper) {
+          results.isSuperAdminRpc.status = "FAIL";
+          results.isSuperAdminRpc.details = "is_super_admin() RPC returned FALSE.";
+        } else {
+          results.isSuperAdminRpc.status = "PASS";
+          results.isSuperAdminRpc.details = "is_super_admin() RPC returned TRUE.";
+        }
+
+        // 4. Session valid check
+        const jwtPayload = JSON.parse(atob(session.access_token.split('.')[1]));
+        const sessionId = jwtPayload.session_id;
+        const { data: sessData, error: sessErr } = await supabase
+          .from('verified_sessions')
+          .select('*')
+          .eq('session_id', sessionId)
+          .maybeSingle();
+        
+        if (sessErr || !sessData || !sessData.verified) {
+          results.sessionVerified.status = "FAIL";
+          results.sessionVerified.details = "Session is not marked as verified. " + (sessErr?.message || "");
+        } else {
+          results.sessionVerified.status = "PASS";
+          results.sessionVerified.details = `Session ${sessionId} is active and verified.`;
+        }
+      }
+
+      // 5. Election exists check
+      const { data: dbElections, error: elErr } = await supabase
+        .from('elections')
+        .select('*');
+      
+      if (elErr) {
+        results.electionExists.status = "FAIL";
+        results.electionExists.details = "Failed to query public.elections table: " + elErr.message;
+      } else if (!dbElections || dbElections.length === 0) {
+        results.electionExists.status = "WARNING";
+        results.electionExists.details = "No elections currently exist in the database.";
+      } else {
+        results.electionExists.status = "PASS";
+        results.electionExists.details = `Found ${dbElections.length} elections in database.`;
+      }
+
+      // 6. Election status valid check
+      if (dbElections && dbElections.length > 0) {
+        const invalidElections = dbElections.filter(e => !['DRAFT', 'ACTIVE', 'PAUSED', 'COMPLETED', 'DEADLOCK', 'STOPPED', 'ARCHIVED'].includes(e.status));
+        if (invalidElections.length > 0) {
+          results.electionStatusValid.status = "FAIL";
+          results.electionStatusValid.details = `Found ${invalidElections.length} elections with invalid statuses: ${invalidElections.map(e => `${e.election_name} (${e.status})`).join(', ')}`;
+        } else {
+          results.electionStatusValid.status = "PASS";
+          results.electionStatusValid.details = "All election statuses are valid (DRAFT, ACTIVE, PAUSED, COMPLETED, DEADLOCK, STOPPED, or ARCHIVED).";
+        }
+      } else {
+        results.electionStatusValid.status = "PASS";
+        results.electionStatusValid.details = "No elections to validate status.";
+      }
+
+      // 7. RPC executable check
+      const { error: rpcErr } = await supabase.rpc('is_super_admin');
+      if (rpcErr) {
+        results.rpcExecutable.status = "FAIL";
+        results.rpcExecutable.details = "Failed to execute RPC: " + rpcErr.message;
+      } else {
+        results.rpcExecutable.status = "PASS";
+        results.rpcExecutable.details = "Database RPC endpoints are responsive and accessible.";
+      }
+
+      // 8. RLS not blocking check
+      const { data: rlsData, error: rlsErr } = await supabase
+        .from('system_settings')
+        .select('*')
+        .limit(1);
+      
+      if (rlsErr) {
+        results.rlsValidation.status = "FAIL";
+        results.rlsValidation.details = "RLS read access check failed on public.system_settings: " + rlsErr.message;
+      } else {
+        results.rlsValidation.status = "PASS";
+        results.rlsValidation.details = "RLS policies are permitting admin select queries.";
+      }
+
+    } catch (err) {
+      console.error("Diagnostics execution error:", err);
+    } finally {
+      setDiagnosticsResults(results);
+      setDiagnosticsLoading(false);
+    }
+  };
+
   // Global Search State (with debouncing support)
 
   // Mobile sidebar navigation toggle state
@@ -1153,13 +1293,14 @@ export default function Dashboard() {
 
   // ESC key dismiss and scroll lock for admin workspace
   useEffect(() => {
-    const handleEsc = (e) => {
-      if (e.key === 'Escape') {
+    const handleEsc = (event) => {
+      if (event.key === 'Escape') {
         setShowNoteModal(false);
         setPreviewElection(null);
         setInspectedElection(null);
         setSidebarOpen(false);
         setConfirmModal({ show: false, title: '', message: '', onConfirm: null, isTeal: false });
+        setShowDiagnosticsModal(false);
       }
     };
     document.addEventListener('keydown', handleEsc);
@@ -1167,13 +1308,13 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (showNoteModal || previewElection || inspectedElection || sidebarOpen || confirmModal.show) {
+    if (showNoteModal || previewElection || inspectedElection || sidebarOpen || confirmModal.show || showDiagnosticsModal) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
     return () => { document.body.style.overflow = ''; };
-  }, [showNoteModal, previewElection, inspectedElection, sidebarOpen, confirmModal.show]);
+  }, [showNoteModal, previewElection, inspectedElection, sidebarOpen, confirmModal.show, showDiagnosticsModal]);
 
   // Notifications Bell State
 
@@ -1441,13 +1582,23 @@ export default function Dashboard() {
 
     const publish = window.confirm('EMERGENCY STOP PROTOCOL:\nWould you like to calculate and publish the current results with this emergency stop?');
     
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: adminCheck } = await supabase.rpc('is_super_admin');
+    console.log("Current User:", user);
+    console.log("Admin Check:", adminCheck);
+
     const { error } = await supabase.rpc('emergency_stop_election', {
       p_election_id: id,
       p_publish_results: publish
     });
     
     if (error) {
-      alert('Failed to apply emergency stop: ' + error.message);
+      console.error(error);
+      console.error(error.message);
+      console.error(error.details);
+      console.error(error.hint);
+      console.error(error.code);
+      alert('Failed to apply emergency stop: ' + (error.message || 'Operation Failed'));
     } else {
       await addAuditLog('ELECTION_STOPPED', 'admin', `EMERGENCY STOP ACTIVATED ON ${el.name} - HALTING VOTING`, 'CRITICAL', 'err');
       setNotifications(prevNotif => [
@@ -1466,11 +1617,21 @@ export default function Dashboard() {
       'Complete Election and Lock Ledger',
       `Are you sure you want to complete the election "${el?.name || 'this election'}"? This will lock all votes and calculate final results.`,
       async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data: adminCheck } = await supabase.rpc('is_super_admin');
+        console.log("Current User:", user);
+        console.log("Admin Check:", adminCheck);
+
         const { data: finalStatus, error } = await supabase
           .rpc('finalize_election', { p_election_id: id });
 
         if (error) {
-          alert('Failed to complete/finalize election: ' + error.message);
+          console.error(error);
+          console.error(error.message);
+          console.error(error.details);
+          console.error(error.hint);
+          console.error(error.code);
+          alert('Failed to complete/finalize election: ' + (error.message || 'Operation Failed'));
         } else {
           if (finalStatus === 'DEADLOCK') {
             alert('TIE DEADLOCK DETECTED! Administrative tie-break resolution is required.');
@@ -2188,6 +2349,11 @@ export default function Dashboard() {
       'Confirm Reopen Election',
       `Are you sure you want to reopen "${el?.name}" until ${newEndTime.toLocaleString()}?`,
       async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data: adminCheck } = await supabase.rpc('is_super_admin');
+        console.log("Current User:", user);
+        console.log("Admin Check:", adminCheck);
+
         const { error } = await supabase
           .rpc('reopen_election', { 
             p_election_id: electionId, 
@@ -2195,7 +2361,12 @@ export default function Dashboard() {
           });
 
         if (error) {
-          alert('Failed to reopen election: ' + error.message);
+          console.error(error);
+          console.error(error.message);
+          console.error(error.details);
+          console.error(error.hint);
+          console.error(error.code);
+          alert('Failed to reopen election: ' + (error.message || 'Operation Failed'));
         } else {
           await addAuditLog('TIE_BREAK', 'admin', `Reopened election ${el?.name} until ${newEndTime.toISOString()}. Cleared previous votes and tokens.`, 'WARNING', 'warn');
           await fetchDatabaseData();
@@ -4000,7 +4171,7 @@ export default function Dashboard() {
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--gold)', fontWeight: 'bold' }}>{el.id}</span>
-                          <span className={`election-status-tag ${el.status.toLowerCase()}`} style={{ fontSize: '9px', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: 'bold', background: el.status === 'ACTIVE' ? 'var(--teal-bg)' : el.status === 'PAUSED' ? 'var(--gold-bg)' : el.status === 'DEADLOCK' ? 'var(--red-bg)' : 'var(--glass)', color: el.status === 'ACTIVE' ? 'var(--teal)' : el.status === 'PAUSED' ? 'var(--gold)' : el.status === 'DEADLOCK' ? 'var(--red)' : 'var(--text2)' }}>
+                          <span className={`election-status-tag ${el.status.toLowerCase()}`} style={{ fontSize: '9px', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: 'bold', background: el.status === 'ACTIVE' ? 'var(--green)' : el.status === 'PAUSED' ? 'var(--gold)' : el.status === 'COMPLETED' ? 'var(--accent)' : el.status === 'DEADLOCK' ? 'var(--red)' : 'var(--surface2)', color: (el.status === 'DRAFT' || el.status === 'CONFIGURED') ? 'var(--text2)' : '#fff', border: '1px solid ' + (el.status === 'ACTIVE' ? 'var(--green)' : el.status === 'PAUSED' ? 'var(--gold)' : el.status === 'COMPLETED' ? 'var(--accent)' : el.status === 'DEADLOCK' ? 'var(--red)' : 'var(--border)') }}>
                             {el.status === 'ACTIVE' ? 'Running' : el.status === 'STOPPED' ? 'Stopped' : el.status}
                           </span>
                         </div>
@@ -4117,7 +4288,7 @@ export default function Dashboard() {
                           <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text2)', lineHeight: '1.4' }}>{el.description}</p>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <span className={`election-status-tag ${el.status.toLowerCase()}`} style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '20px', textTransform: 'uppercase', fontWeight: 'bold', display: 'inline-block', background: el.status === 'ACTIVE' ? 'var(--teal-bg)' : el.status === 'PAUSED' ? 'var(--gold-bg)' : el.status === 'DEADLOCK' ? 'var(--red-bg)' : 'var(--glass)', color: el.status === 'ACTIVE' ? 'var(--teal)' : el.status === 'PAUSED' ? 'var(--gold)' : el.status === 'DEADLOCK' ? 'var(--red)' : 'var(--text2)' }}>
+                          <span className={`election-status-tag ${el.status.toLowerCase()}`} style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '20px', textTransform: 'uppercase', fontWeight: 'bold', display: 'inline-block', background: el.status === 'ACTIVE' ? 'var(--green)' : el.status === 'PAUSED' ? 'var(--gold)' : el.status === 'COMPLETED' ? 'var(--accent)' : el.status === 'DEADLOCK' ? 'var(--red)' : 'var(--surface2)', color: (el.status === 'DRAFT' || el.status === 'CONFIGURED') ? 'var(--text2)' : '#fff', border: '1px solid ' + (el.status === 'ACTIVE' ? 'var(--green)' : el.status === 'PAUSED' ? 'var(--gold)' : el.status === 'COMPLETED' ? 'var(--accent)' : el.status === 'DEADLOCK' ? 'var(--red)' : 'var(--border)') }}>
                             {el.status === 'ACTIVE' ? 'Running' : el.status === 'STOPPED' ? 'Stopped' : el.status}
                           </span>
                           <span style={{ display: 'block', fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Ended: {el.end}</span>
@@ -4968,6 +5139,10 @@ export default function Dashboard() {
                   addAuditLog('BACKUP_MANUAL', 'admin', 'Manual database backup compiled successfully (Size: 142.8 MB)', 'INFO', 'ok');
                 }}>
                   Trigger Manual Backup Sync
+                </button>
+
+                <button className="btn-action-sm" style={{ width: '100%', marginTop: '12px' }} onClick={runElectionSystemDiagnostics}>
+                  <IconActivity size={18} /> Run System Diagnostics Check
                 </button>
               </div>
             </div>
@@ -5963,6 +6138,79 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Diagnostics Modal */}
+      {showDiagnosticsModal && (
+        <div className="diagnostics-modal-overlay" onClick={() => setShowDiagnosticsModal(false)}>
+          <div className="diagnostics-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="diagnostics-modal-header">
+              <div className="header-title-row">
+                <IconActivity className="diagnostics-icon" size={24} />
+                <h3>Election System Diagnostics</h3>
+              </div>
+              <button className="diagnostics-close-btn" onClick={() => setShowDiagnosticsModal(false)}>
+                &times;
+              </button>
+            </div>
+            <div className="diagnostics-modal-body">
+              {diagnosticsLoading ? (
+                <div className="diagnostics-loading-container">
+                  <div className="secure-loading-spinner" />
+                  <p>Running secure integrity & validation diagnostics...</p>
+                </div>
+              ) : diagnosticsResults ? (
+                <div className="diagnostics-results-list">
+                  {Object.entries(diagnosticsResults).map(([key, item]) => {
+                    let statusClass = "status-pending";
+                    let statusIcon = null;
+
+                    if (item.status === "PASS") {
+                      statusClass = "status-pass";
+                      statusIcon = <IconCircleCheck className="status-pass-icon" size={20} />;
+                    } else if (item.status === "WARNING") {
+                      statusClass = "status-warning";
+                      statusIcon = <IconAlertTriangle className="status-warning-icon" size={20} />;
+                    } else if (item.status === "FAIL") {
+                      statusClass = "status-fail";
+                      statusIcon = <IconAlertCircle className="status-fail-icon" size={20} />;
+                    }
+
+                    return (
+                      <div key={key} className={`diagnostics-result-item ${statusClass}`}>
+                        <div className="result-item-header">
+                          <div className="result-title-group">
+                            {statusIcon}
+                            <span className="result-name">{item.name}</span>
+                          </div>
+                          <span className={`result-badge ${item.status.toLowerCase()}`}>{item.status}</span>
+                        </div>
+                        <div className="result-details">{item.details}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p>No diagnostics results available. Press Rerun below to execute.</p>
+              )}
+            </div>
+            <div className="diagnostics-modal-footer">
+              <button 
+                className="btn-action-sm" 
+                onClick={() => setShowDiagnosticsModal(false)}
+              >
+                Close
+              </button>
+              <button 
+                className="btn-action-sm gold" 
+                onClick={runElectionSystemDiagnostics}
+                disabled={diagnosticsLoading}
+              >
+                {diagnosticsLoading ? "Running..." : "Rerun Diagnostics"}
+              </button>
             </div>
           </div>
         </div>

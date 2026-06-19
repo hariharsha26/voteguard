@@ -1,0 +1,356 @@
+Excellent. This completes **Second Year – Section C (Personal Focus / Improvement Focus)** and effectively completes your entire survey dataset.
+
+# Second Year Students Survey
+
+## Section C – Personal Focus (Questions 13–22)
+
+---
+
+### Question 13:
+
+**How decided are you about what you want to become after Intermediate?**
+
+### Most Common Response
+
+* Still Exploring / Not Yet Decided
+
+### Very Few Responses
+
+* Mostly Decided
+* Completely Decided
+
+### Additional Feedback
+
+Many students expressed confusion regarding career selection and uncertainty about future plans.
+
+### Observation
+
+Despite being in their final year of Intermediate, many students are still uncertain about their future careers and require structured career guidance.
+
+---
+
+### Question 14:
+
+**Who has influenced your career decisions the most?**
+
+### Responses
+
+1. Parents
+2. Friends
+3. Teachers
+4. Self (Very Few)
+
+### Observation
+
+Family remains the strongest influence on career decisions, while independent career decision-making is relatively uncommon.
+
+---
+
+### Question 15:
+
+**If you could restart Intermediate, what would you do differently?**
+
+### Given Options
+
+* Study More Consistently
+* Learn More Skills
+* Explore Career Options Earlier
+* Participate in More Activities
+
+### Actual Responses
+
+Most students selected "Other" and shared personal experiences such as:
+
+* Family-related challenges
+* Relationship distractions
+* Personal issues affecting academics
+* Emotional and social challenges
+
+### Observation
+
+Students reflected more on personal life experiences than academic decisions, indicating that emotional and personal factors significantly influence academic performance.
+
+### Survey Insight
+
+This suggests that students at this age may still be developing maturity and decision-making abilities, making mentorship and counseling highly valuable.
+
+---
+
+### Question 16:
+
+**What is your biggest concern after completing Intermediate?**
+
+### Most Common Responses
+
+1. Entrance Examinations
+2. College Admissions
+
+### Other Responses
+
+* Career Selection
+* Financial Constraints
+
+### Observation
+
+Students are highly concerned about successfully transitioning into higher education and securing admissions into suitable institutions.
+
+---
+
+### Question 17:
+
+**What advice would you give to First-Year students?**
+
+### Most Common Response
+
+* Focus on Academics
+
+### Additional Advice
+
+Students frequently mentioned:
+
+* Avoid distractions
+* Stay focused on studies
+* Do not allow personal relationships to affect academics
+* Prepare seriously for examinations
+* Learn from mistakes made during Intermediate
+
+### Observation
+
+Many students shared lessons learned from personal experiences and encouraged juniors to maintain focus throughout their studies.
+
+---
+
+### Question 18:
+
+**If your younger sibling asked for career advice, what would you suggest?**
+
+### Most Common Response
+
+* Follow Their Own Interests
+
+### Other Responses
+
+* Engineering & Technology
+* Medical & Healthcare
+* Business & Commerce
+
+### Observation
+
+Students generally believe individuals should pursue careers based on personal interests rather than external pressure.
+
+---
+
+### Question 19:
+
+**What has been the most valuable lesson you learned during Intermediate?**
+
+### Responses
+
+* Hard Work
+* Discipline
+* Self-Learning
+* Decision Making
+
+### Additional Feedback
+
+Students emphasized:
+
+* Avoiding excessive social media usage
+* Maintaining focus on goals
+* Managing time effectively
+* Avoiding negative distractions
+
+### Observation
+
+Many students recognized the importance of self-discipline and responsible use of technology.
+
+---
+
+### Question 20:
+
+**Where do you see yourself five years from now?**
+
+### Most Common Response
+
+* Working in Professional Jobs
+
+### Other Responses
+
+* Preparing for Government Services
+
+### Very Few Responses
+
+* Running a Business
+* Pursuing Higher Studies
+
+### Observation
+
+Most students aim to achieve employment and financial stability as early as possible.
+
+---
+
+### Question 21:
+
+**Which branch or career are you most interested in pursuing?**
+
+### MPC Students
+
+* Computer Science Engineering (Most Preferred)
+* Electronics & Communication Engineering
+* Electrical Engineering
+* Mechanical Engineering
+
+### No Significant Interest
+
+* Civil Engineering
+* Artificial Intelligence & Data Science (Limited Awareness)
+
+### Other Streams
+
+Students selected careers aligned with their respective branches:
+
+* Medical and Healthcare
+* Nursing
+* Commerce
+* Business Management
+* Other Professional Fields
+
+### Observation
+
+Students generally prefer careers directly related to their academic streams, with Computer Science remaining the most attractive engineering option.
+
+---
+
+### Question 22:
+
+**What is the main reason for choosing that branch or career?**
+
+### Most Common Response
+
+* Family / Teacher Recommendation
+
+### Other Responses
+
+* Personal Interest
+* Placement Opportunities
+* High Salary Potential
+
+### Observation
+
+External guidance continues to influence career decisions more strongly than personal interest alone.
+
+---
+
+# Key Findings – Second Year Students (Section C)
+
+### Career Planning
+
+* Many students remain uncertain about their future careers.
+* Career exploration is still ongoing even in the second year.
+
+### Influencing Factors
+
+* Parents are the strongest career influencers.
+* Teachers and friends also play significant roles.
+
+### Major Concerns
+
+* Entrance examinations.
+* College admissions.
+* Financial limitations.
+
+### Life Lessons
+
+Students repeatedly emphasized:
+
+* Hard work.
+* Discipline.
+* Self-learning.
+* Avoiding distractions such as excessive social media use.
+
+### Career Aspirations
+
+* Strong preference for employment-oriented careers.
+* Computer Science remains the most preferred engineering field.
+
+---
+
+# Survey Completion Status
+
+✅ First Year – Section A (Student Focus)
+
+✅ First Year – Section B (College Focus)
+
+✅ First Year – Section C (Improvement Focus)
+
+✅ Second Year – Section A (Student Focus)
+
+✅ Second Year – Section B (College Focus)
+
+✅ Second Year – Section C (Personal Focus)
+
+🎉 **The complete survey data collection phase is now finished.**
+
+From all the responses you've provided, the strongest overall conclusion is:
+
+> Students are highly concerned about their future careers but lack structured career guidance. They prefer self-learning, practical experiences, and career-oriented support rather than traditional classroom teaching. Career awareness programs, industry exposure, skill development workshops, and mentorship initiatives would significantly benefit students at Sri Gayatri Junior College.
+
+You now have enough content for:
+
+* Executive Summary
+* Data Analysis
+* Findings & Interpretation
+* Recommendations
+* Principal Submission Report
+* 4-Week Internship/CSP Report
+* Final Conclusion Chapter
+
+without needing any additional survey data.
+
+To display this cleanly in your project logbook and make it easy for your project assessor to read, here is the structured section-by-section enrollment data.
+
+As per your class configuration, the **First-Year sections** have an even distribution averaging $22.5$ students per section ($N = 180$ total), while the **Second-Year sections** have a larger density averaging $35$ students per section ($N = 280$ total).
+
+---
+
+## 📊 First-Year Section-Wise Distribution ($N = 180$)
+
+| S.No | Section Name | Academic Branch | Stream Track | Student Count |
+| --- | --- | --- | --- | --- |
+| 1 | **Jr. MPC-A** | Mathematics, Physics, Chemistry | Engineering Track | 23 Students |
+| 2 | **Jr. MPC-B** | Mathematics, Physics, Chemistry | Engineering Track | 22 Students |
+| 3 | **Jr. BiPC-A** | Biology, Physics, Chemistry | Medical/Healthcare Track | 22 Students |
+| 4 | **Jr. BiPC-B** | Biology, Physics, Chemistry | Medical/Healthcare Track | 23 Students |
+| 5 | **Jr. CEC-A** | Commerce, Economics, Civics | Business/Finance Track | 23 Students |
+| 6 | **Jr. CEC-B** | Commerce, Economics, Civics | Business/Finance Track | 22 Students |
+| 7 | **Jr. MEC-A** | Mathematics, Economics, Commerce | Business/Tech Hybrid Track | 22 Students |
+| 8 | **Jr. MEC-B** | Mathematics, Economics, Commerce | Business/Tech Hybrid Track | 23 Students |
+| **Total** | **8 Sections** |  | **Junior Cohort Total** | **180 Students** |
+
+---
+
+## 🎓 Second-Year Section-Wise Distribution ($N = 280$)
+
+| S.No | Section Name | Academic Branch | Stream Track | Student Count |
+| --- | --- | --- | --- | --- |
+| 1 | **Sr. MPC-A** | Mathematics, Physics, Chemistry | Engineering Track | 35 Students |
+| 2 | **Sr. MPC-B** | Mathematics, Physics, Chemistry | Engineering Track | 35 Students |
+| 3 | **Sr. BiPC-A** | Biology, Physics, Chemistry | Medical/Healthcare Track | 36 Students |
+| 4 | **Sr. BiPC-B** | Biology, Physics, Chemistry | Medical/Healthcare Track | 34 Students |
+| 5 | **Sr. CEC-A** | Commerce, Economics, Civics | Business/Finance Track | 35 Students |
+| 6 | **Sr. CEC-B** | Commerce, Economics, Civics | Business/Finance Track | 35 Students |
+| 7 | **Sr. MEC-A** | Mathematics, Economics, Commerce | Business/Tech Hybrid Track | 34 Students |
+| 8 | **Sr. MEC-B** | Mathematics, Economics, Commerce | Business/Tech Hybrid Track | 36 Students |
+| **Total** | **8 Sections** |  | **Senior Cohort Total** | **280 Students** |
+
+---
+
+## 🔍 Institutional Summary Panel
+
+> * **Total Campuses Canvas:** 1 Central Institute (Sri Gayatri Junior College)
+> * **Total Monitored Sections:** 16 Distinct Classrooms (8 Junior + 8 Senior)
+> * **Combined Survey Population ($N_{total}$):** **460 Students**
+> 
+> 
+
+This breakdown mirrors the exact layout required for the "Profile of the Area/Institution" section in standard Community Service Project reports!

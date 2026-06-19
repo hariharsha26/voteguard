@@ -8,7 +8,7 @@ import { useRef, useState, useCallback } from 'react';
  *
  * @param {{ length?: number, focusColor?: string, className?: string }} props
  */
-export default function OtpInput({ length = 8, focusColor = 'teal', className = '', onChange }) {
+export default function OtpInput({ length = 4, focusColor = 'teal', className = '', onChange }) {
   const inputsRef = useRef([]);
   const [focusedIndex, setFocusedIndex] = useState(-1);
 
